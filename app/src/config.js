@@ -8,6 +8,7 @@ module.exports = {
   // Admin auth
   ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'admin',
   ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD, // plaintext fallback — hashed at startup
   SESSION_SECRET: process.env.SESSION_SECRET || 'change-me-in-production',
 
   // FamilySearch OAuth

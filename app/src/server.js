@@ -47,7 +47,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: config.NODE_ENV === 'production',
+    secure: false, // TODO: set to true once SSL is active
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax',
@@ -56,6 +56,20 @@ app.use(session({
 
 // Initialize database
 db.initialize();
+
+// Hash admin password at startup if plaintext provided (avoids Docker $ escaping issues)
+const bcrypt = require('bcrypt');
+(async () => {
+  if (config.ADMIN_PASSWORD && !config.ADMIN_PASSWORD_HASH?.startsWith('$2')) {
+    config.ADMIN_PASSWORD_HASH = await bcrypt.hash(config.ADMIN_PASSWORD, 10);
+    console.log('Admin password hashed at startup from ADMIN_PASSWORD env var');
+  }
+  if (config.ADMIN_PASSWORD_HASH) {
+    console.log('Admin password hash loaded, starts with:', config.ADMIN_PASSWORD_HASH.substring(0, 7));
+  } else {
+    console.warn('WARNING: No admin password configured!');
+  }
+})();
 
 // Layout render helper — wraps content views in layout.ejs
 const ejs = require('ejs');
