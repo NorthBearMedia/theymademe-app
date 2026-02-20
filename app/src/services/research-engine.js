@@ -97,6 +97,33 @@ function yearDiff(date1, date2) {
   return Math.abs(date1.year - date2.year);
 }
 
+// Format a date string for the FamilySearch API (q.birthLikeDate / q.deathLikeDate)
+// FS expects formats like "1959", "1 September 1959", "September 1959"
+function formatDateForApi(dateStr) {
+  if (!dateStr) return null;
+  const parsed = normalizeDate(dateStr);
+  if (!parsed) return dateStr; // Pass through if unparseable
+
+  const MONTHS = ['January','February','March','April','May','June',
+    'July','August','September','October','November','December'];
+
+  if (parsed.day && parsed.month) {
+    return `${parsed.day} ${MONTHS[parsed.month - 1]} ${parsed.year}`;
+  }
+  if (parsed.month) {
+    return `${MONTHS[parsed.month - 1]} ${parsed.year}`;
+  }
+  return String(parsed.year);
+}
+
+// Format a date string as year-only for broader FamilySearch searches
+function formatYearOnly(dateStr) {
+  if (!dateStr) return null;
+  const parsed = normalizeDate(dateStr);
+  if (!parsed) return dateStr;
+  return String(parsed.year);
+}
+
 // ─── Source Classification ───────────────────────────────────────────
 
 function classifySource(source) {
@@ -461,6 +488,11 @@ class ResearchEngine {
     }
 
     const best = scored[0];
+    console.log(`[Score] asc#${ascNumber}: ${scored.length} candidates. Best: "${best.name}" score=${best.computedScore}, FS score=${best.score}`);
+    if (scored.length > 1) {
+      console.log(`[Score] asc#${ascNumber}: Runner-up: "${scored[1].name}" score=${scored[1].computedScore}`);
+    }
+
     if (best.computedScore < 50) {
       return this.storeRejected(ascNumber, generation, knownInfo, searchLog,
         `Best candidate score ${best.computedScore} below threshold of 50`);
@@ -554,13 +586,21 @@ class ResearchEngine {
       }
     };
 
+    // Normalize dates for API — FS expects "1 September 1959", not "01.09.59"
+    const apiBirthDate = formatDateForApi(knownInfo.birthDate);
+    const apiDeathDate = formatDateForApi(knownInfo.deathDate);
+    const apiBirthYear = formatYearOnly(knownInfo.birthDate);
+
+    console.log(`[Search] asc#${ascNumber}: name="${knownInfo.givenName} ${knownInfo.surname}", birthDate="${knownInfo.birthDate}" → API: "${apiBirthDate}", year: "${apiBirthYear}"`);
+    if (knownInfo.fatherGivenName) console.log(`[Search] asc#${ascNumber}: father="${knownInfo.fatherGivenName} ${knownInfo.fatherSurname || ''}", mother="${knownInfo.motherGivenName || ''} ${knownInfo.motherSurname || ''}"`);
+
     // Pass 1: EXACT — all known fields including parent names
     const pass1Query = {
       givenName: knownInfo.givenName,
       surname: knownInfo.surname,
-      birthDate: knownInfo.birthDate,
+      birthDate: apiBirthDate,
       birthPlace: knownInfo.birthPlace,
-      deathDate: knownInfo.deathDate,
+      deathDate: apiDeathDate,
       deathPlace: knownInfo.deathPlace,
       fatherGivenName: knownInfo.fatherGivenName,
       fatherSurname: knownInfo.fatherSurname,
@@ -589,9 +629,9 @@ class ResearchEngine {
     const pass2Query = {
       givenName: knownInfo.givenName,
       surname: knownInfo.surname,
-      birthDate: knownInfo.birthDate,
+      birthDate: apiBirthDate,
       birthPlace: knownInfo.birthPlace,
-      deathDate: knownInfo.deathDate,
+      deathDate: apiDeathDate,
       deathPlace: knownInfo.deathPlace,
       count: 10,
     };
@@ -603,14 +643,31 @@ class ResearchEngine {
       searchLog.push({ pass: 2, strategy: 'relaxed', error: err.message, results_count: 0 });
     }
 
+    // Pass 2.5: FIRST_NAME_ONLY — use only the first given name (drop middle names)
+    const firstGivenName = knownInfo.givenName ? knownInfo.givenName.split(/\s+/)[0] : '';
+    if (firstGivenName && firstGivenName !== knownInfo.givenName) {
+      const pass25Query = {
+        givenName: firstGivenName,
+        surname: knownInfo.surname,
+        birthDate: apiBirthDate,
+        birthPlace: knownInfo.birthPlace,
+        count: 10,
+      };
+      try {
+        const results = await fsApi.searchPerson(pass25Query);
+        addResults(results, 2, JSON.stringify(pass25Query));
+        searchLog.push({ pass: 2.5, strategy: 'first_name_only', query: pass25Query, results_count: results.length });
+      } catch (err) {
+        searchLog.push({ pass: 2.5, strategy: 'first_name_only', error: err.message, results_count: 0 });
+      }
+    }
+
     // Pass 3: FUZZY — name + birth year only
     if (knownInfo.birthDate) {
-      const parsed = normalizeDate(knownInfo.birthDate);
-      const yearOnly = parsed?.year ? String(parsed.year) : knownInfo.birthDate;
       const pass3Query = {
         givenName: knownInfo.givenName,
         surname: knownInfo.surname,
-        birthDate: yearOnly,
+        birthDate: apiBirthYear,
         count: 10,
       };
       try {
@@ -626,13 +683,11 @@ class ResearchEngine {
     // Common UK surname variants
     const variants = this.getSurnameVariants(knownInfo.surname);
     if (variants.length > 0 && knownInfo.birthDate) {
-      const parsed = normalizeDate(knownInfo.birthDate);
-      const yearOnly = parsed?.year ? String(parsed.year) : knownInfo.birthDate;
       for (const variant of variants.slice(0, 2)) { // Max 2 variants to avoid too many calls
         const pass4Query = {
           givenName: knownInfo.givenName,
           surname: variant,
-          birthDate: yearOnly,
+          birthDate: apiBirthYear,
           count: 5,
         };
         try {
@@ -742,16 +797,29 @@ class ResearchEngine {
 
     // PARENT MATCH (up to parentMax, only if parent info is known)
     if (hasParentInfo) {
-      // We can check if candidate search result mentions parents
-      // This uses the FS search API's parent matching
-      if (knownInfo.fatherGivenName) {
-        // FS search already factors in parent names — if we got a result
-        // with parent names in the query, it's a signal of match
-        // Award points based on whether the search included parent names and returned results
-        score += Math.round(parentMax * 0.5);
+      // Check candidate's parent names against known parent names
+      // The candidate.raw may have parent info from the search result's relationships
+      const fatherDisplay = candidate.fatherName || '';
+      const motherDisplay = candidate.motherName || '';
+
+      if (knownInfo.fatherGivenName || knownInfo.fatherSurname) {
+        const knownFather = normalizeName(`${knownInfo.fatherGivenName || ''} ${knownInfo.fatherSurname || ''}`);
+        if (fatherDisplay && nameContains(fatherDisplay, knownFather)) {
+          score += Math.round(parentMax * 0.5);
+        } else if (candidate.searchPass === 1 && fatherDisplay === '') {
+          // Pass 1 included parent names in query — FS already filtered by parent match
+          // Give partial credit
+          score += Math.round(parentMax * 0.25);
+        }
       }
-      if (knownInfo.motherGivenName) {
-        score += Math.round(parentMax * 0.5);
+
+      if (knownInfo.motherGivenName || knownInfo.motherSurname) {
+        const knownMother = normalizeName(`${knownInfo.motherGivenName || ''} ${knownInfo.motherSurname || ''}`);
+        if (motherDisplay && nameContains(motherDisplay, knownMother)) {
+          score += Math.round(parentMax * 0.5);
+        } else if (candidate.searchPass === 1 && motherDisplay === '') {
+          score += Math.round(parentMax * 0.25);
+        }
       }
     }
 

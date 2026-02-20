@@ -90,9 +90,34 @@ async function searchPerson({
     const display = person.display || {};
 
     // Extract parent names from the GEDCOM X response if available
-    const parents = entry.content?.gedcomx?.relationships?.filter(r =>
+    const allPersons = entry.content?.gedcomx?.persons || [];
+    const relationships = entry.content?.gedcomx?.relationships?.filter(r =>
       r.type === 'http://gedcomx.org/ParentChild'
     ) || [];
+
+    // Build a person map for parent name lookup
+    const personMap = {};
+    for (const p of allPersons) {
+      personMap[p.id] = p;
+    }
+
+    let fatherName = '';
+    let motherName = '';
+    for (const rel of relationships) {
+      // The person in the search result is the child
+      if (rel.person2?.resourceId === person.id || rel.person2?.resource?.includes(person.id)) {
+        const parentId = rel.person1?.resourceId;
+        if (parentId && personMap[parentId]) {
+          const parentDisplay = personMap[parentId].display || {};
+          const parentGender = (parentDisplay.gender || '').toLowerCase();
+          if (parentGender === 'male') {
+            fatherName = parentDisplay.name || '';
+          } else if (parentGender === 'female') {
+            motherName = parentDisplay.name || '';
+          }
+        }
+      }
+    }
 
     return {
       id: person.id,
@@ -103,6 +128,8 @@ async function searchPerson({
       deathDate: display.deathDate || '',
       deathPlace: display.deathPlace || '',
       score: entry.score,
+      fatherName,
+      motherName,
       // Full data for scoring
       facts: person.facts || [],
       names: person.names || [],
