@@ -635,8 +635,9 @@ class ResearchEngine {
 
   // From a verified person, get their parents from FS and traverse each branch
   // Search for parents directly when we have no FS person ID for the child.
-  // Uses known anchors (grandparent names from notes) and child's surname/birthplace
-  // to find grandparents via FamilySearch search, then continues traversal.
+  // Uses known anchors (grandparent names from notes) and child's surname/birthplace.
+  // Anchor ancestors are CUSTOMER DATA — stored at 100% confidence, then we try to
+  // find their FS person ID for tree traversal (same as father/mother treatment).
   async searchParentsDirectly(fromAsc, fromGen) {
     if (fromGen >= this.generations) return;
 
@@ -652,55 +653,122 @@ class ResearchEngine {
     const motherAsc = fromAsc * 2 + 1;
     const nextGen = fromGen + 1;
 
-    // Search for father — use anchor data if available, else child's surname
+    // --- Father ---
     const fatherAnchor = this.knownAnchors[fatherAsc];
     if ((fatherAnchor?.givenName || childSurname) && nextGen <= this.generations) {
-      const fatherSearch = {
-        givenName: fatherAnchor?.givenName || '',
-        surname: fatherAnchor?.surname || childSurname,
-        birthDate: fatherAnchor?.birthDate || estimatedParentBirth || '',
-        birthPlace: fatherAnchor?.birthPlace || childBirthPlace,
-        deathDate: fatherAnchor?.deathDate || '',
-      };
-      console.log(`[DirectSearch] Searching for father (asc#${fatherAsc}): ${fatherSearch.givenName} ${fatherSearch.surname}, b.${fatherSearch.birthDate}`);
-
       const existingFather = this.db.getAncestorByAscNumber(this.jobId, fatherAsc);
-      if (!existingFather) {
+
+      if (fatherAnchor?.givenName && !existingFather) {
+        // Customer gave us this person's name — pre-populate as Customer Data at 100%
+        const fullName = `${fatherAnchor.givenName} ${fatherAnchor.surname || ''}`.trim();
+        console.log(`[DirectSearch] Pre-populating father (asc#${fatherAsc}): ${fullName} as Customer Data`);
+        this.db.addAncestor({
+          research_job_id: this.jobId,
+          fs_person_id: '',
+          name: fullName,
+          gender: 'Male',
+          birth_date: fatherAnchor.birthDate || '',
+          birth_place: fatherAnchor.birthPlace || childBirthPlace,
+          death_date: fatherAnchor.deathDate || '',
+          death_place: fatherAnchor.deathPlace || '',
+          ascendancy_number: fatherAsc,
+          generation: nextGen,
+          confidence: 'customer_data',
+          sources: [],
+          raw_data: {},
+          confidence_score: 100,
+          confidence_level: 'Customer Data',
+          evidence_chain: [],
+          search_log: [],
+          conflicts: [],
+          verification_notes: 'Customer-provided data (from notes)',
+        });
+        // Now try to find their FS person ID (enrichment only — stays at 100%)
+        const fatherInfo = {
+          givenName: fatherAnchor.givenName,
+          surname: fatherAnchor.surname || childSurname,
+          birthDate: fatherAnchor.birthDate || estimatedParentBirth || '',
+          birthPlace: fatherAnchor.birthPlace || childBirthPlace,
+          deathDate: fatherAnchor.deathDate || '',
+        };
+        const fsId = await this.enrichCustomerAncestor(fatherAsc, nextGen, fatherInfo);
+        if (fsId) {
+          await this.traverseParents(fsId, fatherAsc, nextGen);
+        } else {
+          // No FS match — still search for THEIR parents if we have anchor data
+          await this.searchParentsDirectly(fatherAsc, nextGen);
+        }
+      } else if (!existingFather && !fatherAnchor?.givenName) {
+        // No anchor data, just guessing from child's surname — use verify (not customer data)
+        const fatherSearch = {
+          givenName: '',
+          surname: childSurname,
+          birthDate: estimatedParentBirth || '',
+          birthPlace: childBirthPlace,
+          deathDate: '',
+        };
+        console.log(`[DirectSearch] Searching for unknown father (asc#${fatherAsc}): ${fatherSearch.surname}, b.${fatherSearch.birthDate}`);
         const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, fatherSearch);
         if (fResult.verified && fResult.personId) {
           await this.traverseParents(fResult.personId, fatherAsc, nextGen);
-        } else if (fResult.verified) {
-          // Found but no FS ID — try searching for THEIR parents too
-          await this.searchParentsDirectly(fatherAsc, nextGen);
         }
-      } else if (existingFather.fs_person_id) {
-        // Already have an FS ID from pre-population — traverse from that
+      } else if (existingFather?.fs_person_id) {
         await this.traverseParents(existingFather.fs_person_id, fatherAsc, nextGen);
+      } else if (existingFather) {
+        // Record exists but no FS ID — still search for their parents
+        await this.searchParentsDirectly(fatherAsc, nextGen);
       }
     }
 
-    // Search for mother — only if we have anchor data (can't guess mother's maiden name)
+    // --- Mother --- only if we have anchor data (can't guess mother's maiden name)
     const motherAnchor = this.knownAnchors[motherAsc];
     if (motherAnchor?.givenName && nextGen <= this.generations) {
-      const motherSearch = {
-        givenName: motherAnchor.givenName,
-        surname: motherAnchor.surname || '',
-        birthDate: motherAnchor?.birthDate || estimatedParentBirth || '',
-        birthPlace: motherAnchor?.birthPlace || childBirthPlace,
-        deathDate: motherAnchor?.deathDate || '',
-      };
-      console.log(`[DirectSearch] Searching for mother (asc#${motherAsc}): ${motherSearch.givenName} ${motherSearch.surname}, b.${motherSearch.birthDate}`);
-
       const existingMother = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+
       if (!existingMother) {
-        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, motherSearch);
-        if (mResult.verified && mResult.personId) {
-          await this.traverseParents(mResult.personId, motherAsc, nextGen);
-        } else if (mResult.verified) {
+        // Customer gave us this person's name — pre-populate as Customer Data at 100%
+        const fullName = `${motherAnchor.givenName} ${motherAnchor.surname || ''}`.trim();
+        console.log(`[DirectSearch] Pre-populating mother (asc#${motherAsc}): ${fullName} as Customer Data`);
+        this.db.addAncestor({
+          research_job_id: this.jobId,
+          fs_person_id: '',
+          name: fullName,
+          gender: 'Female',
+          birth_date: motherAnchor.birthDate || '',
+          birth_place: motherAnchor.birthPlace || childBirthPlace,
+          death_date: motherAnchor.deathDate || '',
+          death_place: motherAnchor.deathPlace || '',
+          ascendancy_number: motherAsc,
+          generation: nextGen,
+          confidence: 'customer_data',
+          sources: [],
+          raw_data: {},
+          confidence_score: 100,
+          confidence_level: 'Customer Data',
+          evidence_chain: [],
+          search_log: [],
+          conflicts: [],
+          verification_notes: 'Customer-provided data (from notes)',
+        });
+        // Now try to find their FS person ID (enrichment only — stays at 100%)
+        const motherInfo = {
+          givenName: motherAnchor.givenName,
+          surname: motherAnchor.surname || '',
+          birthDate: motherAnchor.birthDate || estimatedParentBirth || '',
+          birthPlace: motherAnchor.birthPlace || childBirthPlace,
+          deathDate: motherAnchor.deathDate || '',
+        };
+        const fsId = await this.enrichCustomerAncestor(motherAsc, nextGen, motherInfo);
+        if (fsId) {
+          await this.traverseParents(fsId, motherAsc, nextGen);
+        } else {
           await this.searchParentsDirectly(motherAsc, nextGen);
         }
       } else if (existingMother.fs_person_id) {
         await this.traverseParents(existingMother.fs_person_id, motherAsc, nextGen);
+      } else {
+        // Record exists but no FS ID — still search for their parents
+        await this.searchParentsDirectly(motherAsc, nextGen);
       }
     }
   }
