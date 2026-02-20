@@ -916,7 +916,17 @@ class ResearchEngine {
     }
 
     // Calculate final confidence
-    const finalConfidence = Math.round(best.computedScore * 0.6 + evidenceResult.score * 0.4);
+    let finalConfidence = Math.round(best.computedScore * 0.6 + evidenceResult.score * 0.4);
+
+    // Tree-linked parents: the tree relationship itself is evidence.
+    // Don't let low evidence scores drag down a tree-linked match.
+    if (knownInfo.fromFsTree && knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
+      const treeFloor = Math.round(best.computedScore * 0.85);
+      if (treeFloor > finalConfidence) {
+        finalConfidence = treeFloor;
+      }
+    }
+
     const confidenceLevel = this.getConfidenceLevel(finalConfidence);
 
     // Build verification notes
