@@ -403,13 +403,18 @@ class ResearchEngine {
     let fatherResult = null;
     let motherResult = null;
 
+    // Estimate parent birth year range from subject's birth year
+    // Parents were typically 20-35 years older
+    const subjectBirth = normalizeDate(subjectInfo.birthDate);
+    const parentEstYear = subjectBirth?.year ? String(subjectBirth.year - 28) : null; // ~28 years older
+
     if (fatherAnchor && (fatherAnchor.givenName || fatherAnchor.surname)) {
       console.log(`[Fallback] Searching for father: ${fatherAnchor.givenName} ${fatherAnchor.surname}`);
       const fatherInfo = {
         givenName: fatherAnchor.givenName || '',
         surname: fatherAnchor.surname || subjectInfo.surname, // Father likely has same surname
         birthPlace: subjectInfo.birthPlace, // Same area likely
-        ...(fatherAnchor.birthDate ? { birthDate: fatherAnchor.birthDate } : {}),
+        birthDate: fatherAnchor.birthDate || parentEstYear,
       };
       fatherResult = await this.verifyPerson(fatherInfo, 2, 1);
     }
@@ -420,7 +425,7 @@ class ResearchEngine {
         givenName: motherAnchor.givenName || '',
         surname: motherAnchor.surname || '',
         birthPlace: subjectInfo.birthPlace,
-        ...(motherAnchor.birthDate ? { birthDate: motherAnchor.birthDate } : {}),
+        birthDate: motherAnchor.birthDate || parentEstYear,
       };
       motherResult = await this.verifyPerson(motherInfo, 3, 1);
     }
@@ -851,9 +856,16 @@ class ResearchEngine {
 
     if (knownGiven) {
       if (candidateGiven === knownGiven) {
-        score += Math.round(nameMax * 0.4); // 40% of name points for given name
-      } else if (nameContains(candidateGiven, knownGiven) || nameContains(knownGiven, candidateGiven)) {
-        score += Math.round(nameMax * 0.2);
+        score += Math.round(nameMax * 0.4); // 40% of name points for full given name match
+      } else {
+        // Check first given name specifically (most important for identity)
+        const candidateFirst = candidateGiven.split(' ')[0] || '';
+        const knownFirst = knownGiven.split(' ')[0] || '';
+        if (candidateFirst && knownFirst && candidateFirst === knownFirst) {
+          score += Math.round(nameMax * 0.3); // First name exact match
+        } else if (nameContains(candidateGiven, knownGiven) || nameContains(knownGiven, candidateGiven)) {
+          score += Math.round(nameMax * 0.12); // Partial — shared names but different order/first name
+        }
       }
     }
 
