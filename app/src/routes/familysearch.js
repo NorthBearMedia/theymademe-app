@@ -50,4 +50,17 @@ router.get('/status', requireAuth, (req, res) => {
   res.json({ connected: !!tokenData, ...(tokenData || {}) });
 });
 
+// Manual token injection — for when OAuth redirect can't reach the server (e.g. no SSL)
+// POST /admin/familysearch/set-token with { token: "..." }
+router.post('/set-token', requireAuth, (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'Token is required' });
+  const db = require('../services/database');
+  db.setSetting('fs_access_token', token);
+  db.setSetting('fs_token_type', 'bearer');
+  db.setSetting('fs_token_obtained_at', new Date().toISOString());
+  console.log('[FS] Token set manually via /set-token endpoint');
+  res.json({ success: true, message: 'Token stored' });
+});
+
 module.exports = router;
