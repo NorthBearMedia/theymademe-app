@@ -37,16 +37,92 @@ router.post('/start', requireAuth, async (req, res) => {
     father_name, mother_name, notes,
   };
 
+  const gens = parseInt(generations, 10) || 4;
+
   db.createResearchJob({
     id: jobId,
     customer_name,
     customer_email: customer_email || '',
-    generations: parseInt(generations, 10) || 4,
+    generations: gens,
     input_data: inputData,
   });
 
+  // Pre-populate ancestors from customer data so they appear on the fan chart immediately
+  // Asc#1 = Subject
+  db.addAncestor({
+    research_job_id: jobId,
+    fs_person_id: '',
+    name: `${given_name} ${surname}`,
+    gender: 'Unknown',
+    birth_date: birth_date || '',
+    birth_place: birth_place || '',
+    death_date: death_date || '',
+    death_place: death_place || '',
+    ascendancy_number: 1,
+    generation: 0,
+    confidence: 'customer_data',
+    sources: [],
+    raw_data: {},
+    confidence_score: 70,
+    confidence_level: 'Customer Data',
+    evidence_chain: [],
+    search_log: [],
+    conflicts: [],
+    verification_notes: 'Customer-provided data — awaiting verification',
+  });
+
+  // Asc#2 = Father (if provided)
+  if (father_name) {
+    db.addAncestor({
+      research_job_id: jobId,
+      fs_person_id: '',
+      name: father_name,
+      gender: 'Male',
+      birth_date: '',
+      birth_place: '',
+      death_date: '',
+      death_place: '',
+      ascendancy_number: 2,
+      generation: 1,
+      confidence: 'customer_data',
+      sources: [],
+      raw_data: {},
+      confidence_score: 60,
+      confidence_level: 'Customer Data',
+      evidence_chain: [],
+      search_log: [],
+      conflicts: [],
+      verification_notes: 'Customer-provided data — awaiting verification',
+    });
+  }
+
+  // Asc#3 = Mother (if provided)
+  if (mother_name) {
+    db.addAncestor({
+      research_job_id: jobId,
+      fs_person_id: '',
+      name: mother_name,
+      gender: 'Female',
+      birth_date: '',
+      birth_place: '',
+      death_date: '',
+      death_place: '',
+      ascendancy_number: 3,
+      generation: 1,
+      confidence: 'customer_data',
+      sources: [],
+      raw_data: {},
+      confidence_score: 60,
+      confidence_level: 'Customer Data',
+      evidence_chain: [],
+      search_log: [],
+      conflicts: [],
+      verification_notes: 'Customer-provided data — awaiting verification',
+    });
+  }
+
   // Run GPS-compliant research engine in background
-  const engine = new ResearchEngine(db, jobId, inputData, parseInt(generations, 10) || 4);
+  const engine = new ResearchEngine(db, jobId, inputData, gens);
   engine.run().catch(err => {
     console.error(`Research job ${jobId} failed:`, err);
   });
@@ -63,6 +139,39 @@ router.get('/:id/progress', requireAuth, (req, res) => {
     progress_message: job.progress_message || '',
     progress_current: job.progress_current || 0,
     progress_total: job.progress_total || 0,
+  });
+});
+
+// JSON endpoint for fan chart polling — lightweight ancestor data
+router.get('/:id/ancestors', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+
+  const ancestors = db.getAncestors(req.params.id);
+
+  // Return lightweight data for the fan chart (no heavy evidence/search_log/raw_data)
+  const lightweight = ancestors.map(a => ({
+    id: a.id,
+    ascendancy_number: a.ascendancy_number,
+    generation: a.generation,
+    name: a.name,
+    gender: a.gender,
+    birth_date: a.birth_date,
+    birth_place: a.birth_place,
+    death_date: a.death_date,
+    death_place: a.death_place,
+    fs_person_id: a.fs_person_id,
+    confidence_score: a.confidence_score,
+    confidence_level: a.confidence_level,
+  }));
+
+  res.json({
+    status: job.status,
+    progress_message: job.progress_message || '',
+    progress_current: job.progress_current || 0,
+    progress_total: job.progress_total || 0,
+    generations: job.generations,
+    ancestors: lightweight,
   });
 });
 

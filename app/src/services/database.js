@@ -212,6 +212,36 @@ function deleteAncestorByAscNumber(researchJobId, ascNumber) {
   getDb().prepare('DELETE FROM ancestors WHERE research_job_id = ? AND ascendancy_number = ?').run(researchJobId, ascNumber);
 }
 
+function getAncestorByAscNumber(researchJobId, ascNumber) {
+  const row = getDb().prepare('SELECT * FROM ancestors WHERE research_job_id = ? AND ascendancy_number = ?').get(researchJobId, ascNumber);
+  if (!row) return null;
+  if (row.sources) row.sources = JSON.parse(row.sources);
+  if (row.raw_data) row.raw_data = JSON.parse(row.raw_data);
+  if (row.evidence_chain) row.evidence_chain = JSON.parse(row.evidence_chain);
+  if (row.search_log) row.search_log = JSON.parse(row.search_log);
+  if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
+  return row;
+}
+
+function updateAncestorByAscNumber(researchJobId, ascNumber, updates) {
+  const fields = [];
+  const values = [];
+  for (const [key, val] of Object.entries(updates)) {
+    fields.push(`${key} = ?`);
+    if (typeof val === 'object' && val !== null) {
+      values.push(JSON.stringify(val));
+    } else {
+      values.push(val);
+    }
+  }
+  values.push(researchJobId, ascNumber);
+  getDb().prepare(`UPDATE ancestors SET ${fields.join(', ')} WHERE research_job_id = ? AND ascendancy_number = ?`).run(...values);
+}
+
+function deleteSearchCandidates(researchJobId) {
+  getDb().prepare('DELETE FROM search_candidates WHERE research_job_id = ?').run(researchJobId);
+}
+
 // Search Candidates
 function addSearchCandidate(candidate) {
   getDb().prepare(`
@@ -255,6 +285,7 @@ module.exports = {
   getSetting, setSetting,
   createResearchJob, getResearchJob, listResearchJobs, updateResearchJob, updateJobProgress,
   addAncestor, getAncestors, getAncestorById, deleteAncestors, deleteAncestorByAscNumber,
+  getAncestorByAscNumber, updateAncestorByAscNumber, deleteSearchCandidates,
   addSearchCandidate, getSearchCandidates,
   getJobStats,
 };

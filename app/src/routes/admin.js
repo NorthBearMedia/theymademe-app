@@ -18,10 +18,15 @@ router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   if (username === config.ADMIN_USERNAME && config.ADMIN_PASSWORD_HASH) {
-    const match = await bcrypt.compare(password, config.ADMIN_PASSWORD_HASH);
-    if (match) {
-      req.session.isAdmin = true;
-      return res.redirect('/admin');
+    try {
+      const match = await bcrypt.compare(password, config.ADMIN_PASSWORD_HASH);
+      if (match) {
+        req.session.isAdmin = true;
+        return res.redirect('/admin');
+      }
+    } catch (err) {
+      console.error('bcrypt compare error:', err.message);
+      console.error('Hash starts with:', config.ADMIN_PASSWORD_HASH.substring(0, 10));
     }
   }
 

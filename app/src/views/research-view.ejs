@@ -20,7 +20,7 @@
     <% } %>
 
     <% if (job.status === 'running') { %>
-        <div style="margin-top:12px;">
+        <div id="fan-progress" style="margin-top:12px;">
             <div style="background:#e8e8e8;border-radius:8px;height:24px;overflow:hidden;margin-bottom:8px;">
                 <% var pct = job.progress_total > 0 ? Math.round((job.progress_current || 0) / job.progress_total * 100) : 0; %>
                 <div style="background:var(--sage);height:100%;width:<%= pct %>%;transition:width 0.5s ease;border-radius:8px;display:flex;align-items:center;justify-content:center;">
@@ -32,11 +32,7 @@
             <div style="font-size:13px;color:var(--forest);">
                 <%= job.progress_message || 'Starting research...' %>
             </div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
-                <%= job.progress_current || 0 %> of <%= job.progress_total || '?' %> persons processed
-            </div>
         </div>
-        <script>setTimeout(function() { location.reload(); }, 5000);</script>
     <% } %>
 
     <% if (job.input_data) { %>
@@ -58,6 +54,58 @@
         </div>
     <% } %>
 </div>
+
+<div class="card">
+    <h2>Family Tree</h2>
+    <div id="fan-chart-container" class="fan-chart-wrap"></div>
+    <% if (job.status !== 'running') { %>
+        <div id="fan-progress"></div>
+    <% } %>
+    <div class="fan-legend">
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d4edda;"></div> Verified (90+%)</div>
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d6eaf8;"></div> Probable (75-89%)</div>
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fff3cd;"></div> Possible (50-74%)</div>
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#e8daef;"></div> Customer Data</div>
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f8d7da;"></div> Rejected</div>
+        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f0e8da;"></div> Empty</div>
+    </div>
+</div>
+
+<script src="/fan-chart.js"></script>
+<script>
+(function () {
+  var container = document.getElementById('fan-chart-container');
+  var progressEl = document.getElementById('fan-progress');
+  var jobId = '<%= job.id %>';
+  var generations = <%= job.generations || 4 %>;
+  var status = '<%= job.status %>';
+
+  // Initial render with server-side data
+  var initialAncestors = <%- JSON.stringify(ancestors.map(function(a) {
+    return {
+      id: a.id,
+      ascendancy_number: a.ascendancy_number,
+      generation: a.generation,
+      name: a.name,
+      gender: a.gender,
+      birth_date: a.birth_date,
+      birth_place: a.birth_place,
+      death_date: a.death_date,
+      death_place: a.death_place,
+      fs_person_id: a.fs_person_id,
+      confidence_score: a.confidence_score,
+      confidence_level: a.confidence_level
+    };
+  })) %>;
+
+  FanChart.render(container, jobId, generations, initialAncestors);
+
+  // Start polling if research is running
+  if (status === 'running' || status === 'pending') {
+    FanChart.startPolling(container, jobId, generations, progressEl);
+  }
+})();
+</script>
 
 <% if (ancestors.length > 0) { %>
 <%

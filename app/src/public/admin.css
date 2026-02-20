@@ -69,3 +69,16 @@ tr:hover td { background: var(--cream); }
 .ancestor-row .name { font-weight: 600; color: var(--forest); }
 .ancestor-row .details { font-size: 13px; color: var(--text-muted); }
 .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+
+/* Fan Chart */
+.fan-chart-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fan-chart-wrap svg { display: block; margin: 0 auto; }
+.fan-arc { cursor: pointer; transition: opacity 0.15s; }
+.fan-arc:hover { opacity: 0.85; }
+.fan-arc-empty { cursor: default; }
+.fan-arc-empty:hover { opacity: 1; }
+.fan-text { pointer-events: none; font-family: 'DM Sans', sans-serif; }
+.fan-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; font-size: 12px; }
+.fan-legend-item { display: flex; align-items: center; gap: 5px; }
+.fan-legend-swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); }
+.fan-progress { font-size: 13px; color: var(--forest); margin-top: 10px; }

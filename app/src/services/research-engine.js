@@ -229,7 +229,9 @@ class ResearchEngine {
   async run() {
     try {
       this.db.updateResearchJob(this.jobId, { status: 'running' });
-      this.db.deleteAncestors(this.jobId);
+      // Do NOT deleteAncestors — pre-populated customer data records must stay
+      // Clear only search candidates from any previous run
+      this.db.deleteSearchCandidates(this.jobId);
 
       // Build verification anchors from input data
       this.buildAnchors();
@@ -237,7 +239,8 @@ class ResearchEngine {
       const totalPossible = Math.pow(2, this.generations + 1) - 1;
       this.db.updateJobProgress(this.jobId, 'Starting research...', 0, totalPossible);
 
-      // Start spiral traversal from subject (asc#1)
+      // Start from customer-provided positions and work outward
+      // Subject (asc#1) — try to verify in FS, update pre-populated record
       const subjectInfo = {
         givenName: this.inputData.given_name,
         surname: this.inputData.surname,
@@ -247,7 +250,6 @@ class ResearchEngine {
         deathPlace: this.inputData.death_place,
       };
 
-      // Add parent names to subject search
       if (this.inputData.father_name) {
         const fp = parseNameParts(this.inputData.father_name);
         subjectInfo.fatherGivenName = fp.givenName;
@@ -259,13 +261,58 @@ class ResearchEngine {
         subjectInfo.motherSurname = mp.surname;
       }
 
-      await this.traverse(1, 0, subjectInfo);
+      // Try to verify the subject in FS
+      const subjectResult = await this.verifyAndUpdate(1, 0, subjectInfo);
 
-      // If subject was rejected (not found in FS), try parent-first fallback
-      const subjectAncestor = this.db.getAncestors(this.jobId).find(a => a.ascendancy_number === 1);
-      if (!subjectAncestor || subjectAncestor.confidence_score < 50) {
-        console.log('[Fallback] Subject not found in FS tree — trying parent-first strategy');
-        await this.parentFirstFallback(subjectInfo);
+      // Whether or not subject was found in FS, proceed to verify parents
+      // Father (asc#2)
+      if (this.knownAnchors[2]) {
+        const fatherInfo = {
+          givenName: this.knownAnchors[2].givenName || '',
+          surname: this.knownAnchors[2].surname || this.inputData.surname,
+          birthDate: this.knownAnchors[2].birthDate || '',
+          birthPlace: subjectInfo.birthPlace,
+        };
+
+        // Estimate father birth year from subject
+        if (!fatherInfo.birthDate) {
+          const subjectBirth = normalizeDate(subjectInfo.birthDate);
+          if (subjectBirth?.year) fatherInfo.birthDate = String(subjectBirth.year - 28);
+        }
+
+        const fatherResult = await this.verifyAndUpdate(2, 1, fatherInfo);
+
+        // Traverse father's parents if verified
+        if (fatherResult.verified && fatherResult.personId) {
+          await this.traverseParents(fatherResult.personId, 2, 1);
+        }
+      }
+
+      // Mother (asc#3)
+      if (this.knownAnchors[3]) {
+        const motherInfo = {
+          givenName: this.knownAnchors[3].givenName || '',
+          surname: this.knownAnchors[3].surname || '',
+          birthDate: this.knownAnchors[3].birthDate || '',
+          birthPlace: subjectInfo.birthPlace,
+        };
+
+        if (!motherInfo.birthDate) {
+          const subjectBirth = normalizeDate(subjectInfo.birthDate);
+          if (subjectBirth?.year) motherInfo.birthDate = String(subjectBirth.year - 28);
+        }
+
+        const motherResult = await this.verifyAndUpdate(3, 1, motherInfo);
+
+        if (motherResult.verified && motherResult.personId) {
+          await this.traverseParents(motherResult.personId, 3, 1);
+        }
+      }
+
+      // If subject was found in FS but parents weren't provided by customer,
+      // still try to find parents through FS tree links
+      if (subjectResult.verified && subjectResult.personId) {
+        await this.traverseParents(subjectResult.personId, 1, 0);
       }
 
       // Complete
@@ -321,10 +368,8 @@ class ResearchEngine {
     }
   }
 
-  async traverse(ascNumber, generation, knownInfo) {
-    if (generation > this.generations) return;
-
-    // Update progress
+  // Verify a person and update the pre-populated record (or insert new)
+  async verifyAndUpdate(ascNumber, generation, knownInfo) {
     this.processedCount++;
     const name = knownInfo.givenName
       ? `${knownInfo.givenName} ${knownInfo.surname || ''}`.trim()
@@ -336,170 +381,94 @@ class ResearchEngine {
       Math.pow(2, this.generations + 1) - 1
     );
 
-    // Verify this person
     const result = await this.verifyPerson(knownInfo, ascNumber, generation);
 
-    if (!result.verified) {
-      // Store as rejected and stop this branch
-      console.log(`Branch stopped at asc#${ascNumber}: confidence ${result.confidence} < 50`);
-      return;
+    // For pre-populated positions (asc#1/2/3), if verification failed, keep the
+    // customer data record instead of overwriting with "rejected"
+    const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
+    if (existing && existing.confidence_level === 'Customer Data' && !result.verified) {
+      // Keep customer data but add a note that FS verification didn't find a match
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
+        verification_notes: 'Customer-provided data — not found in FamilySearch (may be living/recent)',
+        search_log: JSON.stringify(result.searchLog || []),
+      });
+      console.log(`[Engine] asc#${ascNumber}: kept customer data (FS verification failed)`);
+      return { verified: false, personId: null, confidence: existing.confidence_score };
     }
 
-    // Prevent circular references
-    if (this.visitedIds.has(result.personId)) {
-      console.log(`Circular reference detected for ${result.personId} at asc#${ascNumber}`);
-      return;
-    }
-    this.visitedIds.add(result.personId);
-
-    // Don't go further if at max generation
-    if (generation >= this.generations) return;
-
-    // Get parents from FamilySearch
-    let parents;
-    try {
-      parents = await fsApi.getParents(result.personId);
-    } catch (err) {
-      console.log(`Could not get parents for ${result.personId}: ${err.message}`);
-      return;
-    }
-
-    // Build known info for father (asc#2N)
-    const fatherAsc = ascNumber * 2;
-    const motherAsc = ascNumber * 2 + 1;
-
-    // Traverse father first (paternal-first spiral)
-    if (parents.father) {
-      const fatherKnown = this.buildParentKnownInfo(parents.father, fatherAsc);
-      await this.traverse(fatherAsc, generation + 1, fatherKnown);
-    } else if (this.knownAnchors[fatherAsc]) {
-      // No FS parent but we have anchor info — try searching independently
-      const anchorInfo = this.knownAnchors[fatherAsc];
-      if (anchorInfo.givenName || anchorInfo.surname) {
-        await this.traverse(fatherAsc, generation + 1, anchorInfo);
-      }
-    }
-
-    // Then mother
-    if (parents.mother) {
-      const motherKnown = this.buildParentKnownInfo(parents.mother, motherAsc);
-      await this.traverse(motherAsc, generation + 1, motherKnown);
-    } else if (this.knownAnchors[motherAsc]) {
-      const anchorInfo = this.knownAnchors[motherAsc];
-      if (anchorInfo.givenName || anchorInfo.surname) {
-        await this.traverse(motherAsc, generation + 1, anchorInfo);
-      }
-    }
+    return result;
   }
 
-  async parentFirstFallback(subjectInfo) {
-    // Try to find parents in FS and build the tree from them
-    // This handles cases where the subject is too recent/living to be in FS tree
+  // From a verified person, get their parents from FS and traverse each branch
+  async traverseParents(personId, fromAsc, fromGen) {
+    if (fromGen >= this.generations) return;
 
-    // Try father (asc#2) search
-    const fatherAnchor = this.knownAnchors[2];
-    const motherAnchor = this.knownAnchors[3];
+    // Prevent circular references
+    if (this.visitedIds.has(personId)) return;
+    this.visitedIds.add(personId);
 
-    let fatherResult = null;
-    let motherResult = null;
-
-    // Estimate parent birth year range from subject's birth year
-    // Parents were typically 20-35 years older
-    const subjectBirth = normalizeDate(subjectInfo.birthDate);
-    const parentEstYear = subjectBirth?.year ? String(subjectBirth.year - 28) : null; // ~28 years older
-
-    if (fatherAnchor && (fatherAnchor.givenName || fatherAnchor.surname)) {
-      console.log(`[Fallback] Searching for father: ${fatherAnchor.givenName} ${fatherAnchor.surname}`);
-      const fatherInfo = {
-        givenName: fatherAnchor.givenName || '',
-        surname: fatherAnchor.surname || subjectInfo.surname, // Father likely has same surname
-        birthPlace: subjectInfo.birthPlace, // Same area likely
-        birthDate: fatherAnchor.birthDate || parentEstYear,
-      };
-      fatherResult = await this.verifyPerson(fatherInfo, 2, 1);
+    let parents;
+    try {
+      parents = await fsApi.getParents(personId);
+    } catch (err) {
+      console.log(`Could not get parents for ${personId}: ${err.message}`);
+      return;
     }
 
-    if (motherAnchor && (motherAnchor.givenName || motherAnchor.surname)) {
-      console.log(`[Fallback] Searching for mother: ${motherAnchor.givenName} ${motherAnchor.surname}`);
-      const motherInfo = {
-        givenName: motherAnchor.givenName || '',
-        surname: motherAnchor.surname || '',
-        birthPlace: subjectInfo.birthPlace,
-        birthDate: motherAnchor.birthDate || parentEstYear,
-      };
-      motherResult = await this.verifyPerson(motherInfo, 3, 1);
-    }
+    const fatherAsc = fromAsc * 2;
+    const motherAsc = fromAsc * 2 + 1;
+    const nextGen = fromGen + 1;
 
-    // If at least one parent was found, store the subject with moderate confidence
-    // based on customer-provided data (we trust the customer's own info about themselves)
-    if ((fatherResult && fatherResult.verified) || (motherResult && motherResult.verified)) {
-      console.log('[Fallback] Parent found — storing subject from customer data');
+    // Father
+    if (parents.father && nextGen <= this.generations) {
+      const fatherKnown = this.buildParentKnownInfo(parents.father, fatherAsc);
 
-      // Delete the rejected subject record and replace with a customer-data-based one
-      this.db.deleteAncestorByAscNumber(this.jobId, 1);
-
-      // Store subject from customer-provided info with "Possible" confidence
-      // The customer knows their own name, DOB, etc.
-      this.db.addAncestor({
-        research_job_id: this.jobId,
-        fs_person_id: '',
-        name: `${subjectInfo.givenName} ${subjectInfo.surname}`,
-        gender: 'Unknown',
-        birth_date: subjectInfo.birthDate || '',
-        birth_place: subjectInfo.birthPlace || '',
-        death_date: subjectInfo.deathDate || '',
-        death_place: subjectInfo.deathPlace || '',
-        ascendancy_number: 1,
-        generation: 0,
-        confidence: 'possible',
-        sources: [],
-        raw_data: {},
-        confidence_score: 65,
-        confidence_level: 'Possible',
-        evidence_chain: [],
-        search_log: [{ pass: 'fallback', strategy: 'customer_provided', results_count: 0, note: 'Subject not in FS tree — data from customer intake form' }],
-        conflicts: [],
-        verification_notes: 'Subject not found in FamilySearch tree (may be living/recent). Data from customer intake form. Parents verified via parent-first fallback strategy.',
-      });
-
-      // Continue traversal from verified parents
-      if (fatherResult && fatherResult.verified && !this.visitedIds.has(fatherResult.personId)) {
-        this.visitedIds.add(fatherResult.personId);
-        try {
-          const parents = await fsApi.getParents(fatherResult.personId);
-          const fatherFatherAsc = 4;
-          const fatherMotherAsc = 5;
-
-          if (parents.father) {
-            const info = this.buildParentKnownInfo(parents.father, fatherFatherAsc);
-            await this.traverse(fatherFatherAsc, 2, info);
-          }
-          if (parents.mother) {
-            const info = this.buildParentKnownInfo(parents.mother, fatherMotherAsc);
-            await this.traverse(fatherMotherAsc, 2, info);
-          }
-        } catch (err) {
-          console.log(`[Fallback] Could not get father's parents: ${err.message}`);
+      // Check if this position already has a record (e.g., pre-populated)
+      const existingFather = this.db.getAncestorByAscNumber(this.jobId, fatherAsc);
+      if (!existingFather) {
+        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, fatherKnown);
+        if (fResult.verified && fResult.personId) {
+          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+        }
+      } else if (existingFather.confidence_level === 'Customer Data') {
+        // Update pre-populated record with FS data
+        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, fatherKnown);
+        if (fResult.verified && fResult.personId) {
+          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
         }
       }
+    } else if (this.knownAnchors[fatherAsc] && nextGen <= this.generations) {
+      const anchorInfo = this.knownAnchors[fatherAsc];
+      if (anchorInfo.givenName || anchorInfo.surname) {
+        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, anchorInfo);
+        if (fResult.verified && fResult.personId) {
+          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+        }
+      }
+    }
 
-      if (motherResult && motherResult.verified && !this.visitedIds.has(motherResult.personId)) {
-        this.visitedIds.add(motherResult.personId);
-        try {
-          const parents = await fsApi.getParents(motherResult.personId);
-          const motherFatherAsc = 6;
-          const motherMotherAsc = 7;
+    // Mother
+    if (parents.mother && nextGen <= this.generations) {
+      const motherKnown = this.buildParentKnownInfo(parents.mother, motherAsc);
 
-          if (parents.father) {
-            const info = this.buildParentKnownInfo(parents.father, motherFatherAsc);
-            await this.traverse(motherFatherAsc, 2, info);
-          }
-          if (parents.mother) {
-            const info = this.buildParentKnownInfo(parents.mother, motherMotherAsc);
-            await this.traverse(motherMotherAsc, 2, info);
-          }
-        } catch (err) {
-          console.log(`[Fallback] Could not get mother's parents: ${err.message}`);
+      const existingMother = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+      if (!existingMother) {
+        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, motherKnown);
+        if (mResult.verified && mResult.personId) {
+          await this.traverseParents(mResult.personId, motherAsc, nextGen);
+        }
+      } else if (existingMother.confidence_level === 'Customer Data') {
+        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, motherKnown);
+        if (mResult.verified && mResult.personId) {
+          await this.traverseParents(mResult.personId, motherAsc, nextGen);
+        }
+      }
+    } else if (this.knownAnchors[motherAsc] && nextGen <= this.generations) {
+      const anchorInfo = this.knownAnchors[motherAsc];
+      if (anchorInfo.givenName || anchorInfo.surname) {
+        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, anchorInfo);
+        if (mResult.verified && mResult.personId) {
+          await this.traverseParents(mResult.personId, motherAsc, nextGen);
         }
       }
     }
@@ -533,6 +502,23 @@ class ResearchEngine {
     }
 
     return knownInfo;
+  }
+
+  storeOrUpdateAncestor(ascNumber, generation, data) {
+    const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
+    if (existing) {
+      // Update existing record (e.g., pre-populated customer data → verified FS data)
+      // updateAncestorByAscNumber handles JSON serialization for objects/arrays
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, data);
+    } else {
+      // Insert new record
+      this.db.addAncestor({
+        research_job_id: this.jobId,
+        ascendancy_number: ascNumber,
+        generation,
+        ...data,
+      });
+    }
   }
 
   async verifyPerson(knownInfo, ascNumber, generation) {
@@ -630,9 +616,8 @@ class ResearchEngine {
     }
     notes.push(`Search score: ${best.computedScore}/100, Evidence score: ${evidenceResult.score}/100`);
 
-    // Store the verified ancestor
-    this.db.addAncestor({
-      research_job_id: this.jobId,
+    // Store or update the verified ancestor
+    const ancestorData = {
       fs_person_id: best.id,
       name: best.name,
       gender: best.gender,
@@ -640,8 +625,6 @@ class ResearchEngine {
       birth_place: best.birthPlace,
       death_date: best.deathDate,
       death_place: best.deathPlace,
-      ascendancy_number: ascNumber,
-      generation,
       confidence: confidenceLevel.toLowerCase(),
       sources: evidenceResult.evidence.map(e => ({ title: e.title, url: e.url, citation: e.citation })),
       raw_data: best.raw || {},
@@ -651,9 +634,11 @@ class ResearchEngine {
       search_log: searchLog,
       conflicts: [],
       verification_notes: notes.join('. '),
-    });
+    };
 
-    return { verified: finalConfidence >= 50, personId: best.id, confidence: finalConfidence };
+    this.storeOrUpdateAncestor(ascNumber, generation, ancestorData);
+
+    return { verified: finalConfidence >= 50, personId: best.id, confidence: finalConfidence, searchLog };
   }
 
   async verifyDirectCandidate(knownInfo, ascNumber) {
@@ -968,8 +953,14 @@ class ResearchEngine {
       ? `${knownInfo.givenName} ${knownInfo.surname || ''}`.trim()
       : 'Unknown';
 
-    this.db.addAncestor({
-      research_job_id: this.jobId,
+    // Check if a pre-populated record exists — if so, don't overwrite it
+    const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
+    if (existing && existing.confidence_level === 'Customer Data') {
+      // Don't store rejected over customer data — handled by verifyAndUpdate
+      return { verified: false, personId: null, confidence: 0, searchLog };
+    }
+
+    this.storeOrUpdateAncestor(ascNumber, generation, {
       fs_person_id: '',
       name: `${name} (not found)`,
       gender: this.getExpectedGender(ascNumber) || 'Unknown',
@@ -977,8 +968,6 @@ class ResearchEngine {
       birth_place: knownInfo.birthPlace || '',
       death_date: knownInfo.deathDate || '',
       death_place: knownInfo.deathPlace || '',
-      ascendancy_number: ascNumber,
-      generation,
       confidence: 'rejected',
       sources: [],
       raw_data: {},
@@ -990,7 +979,7 @@ class ResearchEngine {
       verification_notes: reason,
     });
 
-    return { verified: false, personId: null, confidence: 0 };
+    return { verified: false, personId: null, confidence: 0, searchLog };
   }
 
   getSurnameVariants(surname) {
