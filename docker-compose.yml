@@ -28,8 +28,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - certbot-etc:/etc/letsencrypt:ro
-      - certbot-var:/var/www/certbot:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/www/certbot
     depends_on:
       port-cleanup:
         condition: service_completed_successfully
