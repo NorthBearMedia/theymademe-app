@@ -301,6 +301,30 @@ function deleteDescendantAncestors(researchJobId, ascNumber) {
   return toDelete;
 }
 
+// Get all FS person IDs that were previously selected for a given asc number
+// (used to blacklist rejected persons on re-research)
+function getRejectedFsIds(researchJobId) {
+  // Look at search_candidates that were selected=1 but whose ancestor record was later deleted
+  // (meaning they were rejected via the re-research flow)
+  // Simpler approach: get all previously-selected FS IDs from search_candidates for this job
+  // that no longer have a matching ancestor record
+  const conn = getDb();
+  const rows = conn.prepare(`
+    SELECT DISTINCT sc.fs_person_id, sc.target_asc_number
+    FROM search_candidates sc
+    WHERE sc.research_job_id = ?
+      AND sc.selected = 1
+      AND sc.fs_person_id != ''
+      AND NOT EXISTS (
+        SELECT 1 FROM ancestors a
+        WHERE a.research_job_id = sc.research_job_id
+          AND a.ascendancy_number = sc.target_asc_number
+          AND a.fs_person_id = sc.fs_person_id
+      )
+  `).all(researchJobId);
+  return rows.map(r => r.fs_person_id);
+}
+
 function getJobStats() {
   const conn = getDb();
   return {
@@ -319,5 +343,6 @@ module.exports = {
   getAncestorByAscNumber, updateAncestorByAscNumber, deleteSearchCandidates,
   addSearchCandidate, getSearchCandidates,
   deleteResearchJob, deleteDescendantAncestors,
+  getRejectedFsIds,
   getJobStats,
 };

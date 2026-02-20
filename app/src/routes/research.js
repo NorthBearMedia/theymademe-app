@@ -222,8 +222,16 @@ router.get('/:id/ancestor/:ancestorId', requireAuth, (req, res) => {
   const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
   if (!ancestor) return res.status(404).send('Ancestor not found');
 
+  // Look up the child (the person this ancestor is a parent of)
+  let parentName = '';
+  if (ancestor.ascendancy_number > 1) {
+    const childAsc = Math.floor(ancestor.ascendancy_number / 2);
+    const child = db.getAncestorByAscNumber(req.params.id, childAsc);
+    if (child) parentName = child.name;
+  }
+
   const candidates = db.getSearchCandidates(req.params.id, ancestor.ascendancy_number);
-  res.render('ancestor-detail', { job, ancestor, candidates });
+  res.render('ancestor-detail', { job, ancestor, candidates, parentName });
 });
 
 // View research results

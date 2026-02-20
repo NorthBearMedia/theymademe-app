@@ -244,13 +244,49 @@ async function getPersonDetails(personId) {
 async function getPersonSources(personId) {
   try {
     const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}/sources`);
-    if (!data.persons?.[0]?.sources) return [];
 
-    return data.persons[0].sources.map(source => ({
-      title: source.description?.titles?.[0]?.value || source.about || 'Unknown source',
-      url: source.about || '',
-      citation: source.description?.citations?.[0]?.value || '',
-    }));
+    // GEDCOM X sources endpoint returns sourceDescriptions at top level
+    const descriptions = data.sourceDescriptions || [];
+
+    // Also check persons[0].sources which references sourceDescriptions
+    const personSources = data.persons?.[0]?.sources || [];
+
+    // Build a map of source description IDs
+    const descMap = {};
+    for (const desc of descriptions) {
+      descMap[desc.id] = desc;
+    }
+
+    // If we have person source references, use those to find descriptions
+    if (personSources.length > 0 && descriptions.length > 0) {
+      return personSources.map(ref => {
+        // The reference points to a sourceDescription via description or descriptionId
+        // description is typically a URI like "#SD-123" or "https://...#SD-123"
+        let descId = ref.descriptionId || '';
+        if (!descId && ref.description) {
+          // Extract the fragment ID from the URI
+          const hashIdx = ref.description.lastIndexOf('#');
+          descId = hashIdx >= 0 ? ref.description.substring(hashIdx + 1) : ref.description;
+        }
+        const desc = descMap[descId] || {};
+        return {
+          title: desc.titles?.[0]?.value || desc.about || descId || 'Unknown source',
+          url: desc.about || '',
+          citation: desc.citations?.[0]?.value || '',
+        };
+      });
+    }
+
+    // Fallback: use sourceDescriptions directly
+    if (descriptions.length > 0) {
+      return descriptions.map(desc => ({
+        title: desc.titles?.[0]?.value || desc.about || 'Unknown source',
+        url: desc.about || '',
+        citation: desc.citations?.[0]?.value || '',
+      }));
+    }
+
+    return [];
   } catch {
     return [];
   }

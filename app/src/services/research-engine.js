@@ -82,6 +82,58 @@ function placeContains(candidatePlace, knownPlace) {
   return knownWords.some(w => a.includes(w));
 }
 
+// Sanitize FamilySearch place names — strip non-Latin scripts (Cyrillic, Old English, etc.)
+// and clean up resulting artifacts (extra commas, spaces)
+function sanitizePlaceName(place) {
+  if (!place) return '';
+  // Strip characters outside Basic Latin, Latin Extended, and common punctuation
+  // This removes Cyrillic (U+0400-04FF), Mongolian, Old English runes, etc.
+  let cleaned = place
+    .replace(/[^\u0000-\u024F\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\s,.\-'()0-9]/g, '')
+    .replace(/,\s*,/g, ',')       // collapse double commas
+    .replace(/,\s*$/g, '')         // trailing comma
+    .replace(/^\s*,/g, '')         // leading comma
+    .replace(/\s{2,}/g, ' ')       // collapse multiple spaces
+    .trim();
+  // Also replace Old English place names with modern equivalents
+  const oldEnglishMap = {
+    'deorbyscir': 'Derbyshire',
+    'beadafordscir': 'Bedfordshire',
+    'beadafordscīr': 'Bedfordshire',
+    'sūþseaxe': 'Sussex',
+    'hamtūnscīr': 'Hampshire',
+    'glēawecæsterscīr': 'Gloucestershire',
+    'oxnafordscīr': 'Oxfordshire',
+    'wiltūnscīr': 'Wiltshire',
+    'sumorsǣte': 'Somerset',
+    'norðfolc': 'Norfolk',
+    'sūðfolc': 'Suffolk',
+    'cent': 'Kent',
+    'defnascīr': 'Devon',
+    'dornsǣte': 'Dorset',
+    'hēortfordscīr': 'Hertfordshire',
+    'buccingahamscīr': 'Buckinghamshire',
+    'ēastseaxe': 'Essex',
+    'norþhymbra land': 'Northumberland',
+    'westmoringaland': 'Westmorland',
+  };
+  // Replace Old English county names (case insensitive)
+  const parts = cleaned.split(',').map(p => p.trim());
+  const modernParts = parts.map(part => {
+    const lower = part.toLowerCase().replace(/[\u0100-\u024F]/g, function(c) {
+      return c.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    });
+    for (const [old, modern] of Object.entries(oldEnglishMap)) {
+      const oldNorm = old.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (lower === oldNorm || lower === old) {
+        return modern;
+      }
+    }
+    return part;
+  }).filter(p => p.length > 0);
+  return modernParts.join(', ');
+}
+
 function nameContains(candidateName, knownName) {
   if (!candidateName || !knownName) return false;
   const a = normalizeName(candidateName);
@@ -315,6 +367,11 @@ class ResearchEngine {
     this.processedCount = 0;
     this.maxAncestors = Math.pow(2, generations + 1) - 2; // max possible (excluding subject for gen count)
     this.knownAnchors = {}; // Map<ascNumber, partialKnownInfo>
+    // Blacklist: FS person IDs that were previously selected but rejected by admin
+    this.rejectedFsIds = new Set(db.getRejectedFsIds(jobId));
+    if (this.rejectedFsIds.size > 0) {
+      console.log(`[Engine] Loaded ${this.rejectedFsIds.size} rejected FS IDs: ${[...this.rejectedFsIds].join(', ')}`);
+    }
   }
 
   async run() {
@@ -537,9 +594,9 @@ class ResearchEngine {
     // Add FS dates/places only if customer didn't provide them
     const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
     if (!existing.birth_date && best.birthDate) enrichData.birth_date = best.birthDate;
-    if (!existing.birth_place && best.birthPlace) enrichData.birth_place = best.birthPlace;
+    if (!existing.birth_place && best.birthPlace) enrichData.birth_place = sanitizePlaceName(best.birthPlace);
     if (!existing.death_date && best.deathDate) enrichData.death_date = best.deathDate;
-    if (!existing.death_place && best.deathPlace) enrichData.death_place = best.deathPlace;
+    if (!existing.death_place && best.deathPlace) enrichData.death_place = sanitizePlaceName(best.deathPlace);
     if (existing.gender === 'Unknown' && best.gender && best.gender !== 'Unknown') enrichData.gender = best.gender;
 
     this.db.updateAncestorByAscNumber(this.jobId, ascNumber, enrichData);
@@ -872,7 +929,13 @@ class ResearchEngine {
         console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} for ${candidate.name} (${candidate.id}) → ${score}`);
       }
 
-      return { ...candidate, computedScore: score };
+      // Blacklist check: if this FS person was previously rejected by admin, zero their score
+      const isBlacklisted = this.rejectedFsIds.has(candidate.id);
+      if (isBlacklisted) {
+        console.log(`[Score] asc#${ascNumber}: BLACKLISTED ${candidate.name} (${candidate.id}) — previously rejected by admin`);
+      }
+
+      return { ...candidate, computedScore: isBlacklisted ? 0 : score, blacklisted: isBlacklisted };
     });
 
     // Sort by score descending
@@ -880,6 +943,12 @@ class ResearchEngine {
 
     // Store all candidates in search_candidates table
     for (const candidate of scored) {
+      let rejReason = '';
+      if (candidate.blacklisted) {
+        rejReason = 'Previously rejected by admin — blacklisted';
+      } else if (candidate.computedScore < 50) {
+        rejReason = `Score ${candidate.computedScore} below threshold`;
+      }
       this.db.addSearchCandidate({
         research_job_id: this.jobId,
         target_asc_number: ascNumber,
@@ -889,8 +958,8 @@ class ResearchEngine {
         search_query: candidate.searchQuery || '',
         fs_score: candidate.score || 0,
         computed_score: candidate.computedScore,
-        selected: candidate === scored[0] && candidate.computedScore >= 50,
-        rejection_reason: candidate.computedScore < 50 ? `Score ${candidate.computedScore} below threshold` : '',
+        selected: candidate === scored[0] && candidate.computedScore >= 50 && !candidate.blacklisted,
+        rejection_reason: rejReason,
         raw_data: candidate.raw || {},
       });
     }
@@ -948,9 +1017,9 @@ class ResearchEngine {
       name: best.name,
       gender: best.gender,
       birth_date: best.birthDate,
-      birth_place: best.birthPlace,
+      birth_place: sanitizePlaceName(best.birthPlace),
       death_date: best.deathDate,
-      death_place: best.deathPlace,
+      death_place: sanitizePlaceName(best.deathPlace),
       confidence: confidenceLevel.toLowerCase(),
       sources: evidenceResult.evidence.map(e => ({ title: e.title, url: e.url, citation: e.citation })),
       raw_data: best.raw || {},
@@ -1356,9 +1425,9 @@ class ResearchEngine {
       name: `${name} (not found)`,
       gender: this.getExpectedGender(ascNumber) || 'Unknown',
       birth_date: knownInfo.birthDate || '',
-      birth_place: knownInfo.birthPlace || '',
+      birth_place: sanitizePlaceName(knownInfo.birthPlace) || '',
       death_date: knownInfo.deathDate || '',
-      death_place: knownInfo.deathPlace || '',
+      death_place: sanitizePlaceName(knownInfo.deathPlace) || '',
       confidence: 'rejected',
       sources: [],
       raw_data: {},

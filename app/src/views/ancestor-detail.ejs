@@ -24,6 +24,11 @@
                     &mdash; <em><%= genLabels[ancestor.generation] %></em>
                 <% } %>
             </span>
+            <% if (ancestor.ascendancy_number > 1 && parentName) { %>
+                <div style="font-size:12px;color:var(--sage);font-weight:600;margin-top:4px;">
+                    <%= ancestor.ascendancy_number % 2 === 0 ? 'Father' : 'Mother' %> of <%= parentName %>
+                </div>
+            <% } %>
         </div>
         <%
           var badgeColor = ancestor.confidence_score >= 90 ? '#155724' : ancestor.confidence_score >= 75 ? '#1a5276' : ancestor.confidence_score >= 50 ? '#856404' : '#721c24';
