@@ -208,6 +208,10 @@ function deleteAncestors(researchJobId) {
   getDb().prepare('DELETE FROM ancestors WHERE research_job_id = ?').run(researchJobId);
 }
 
+function deleteAncestorByAscNumber(researchJobId, ascNumber) {
+  getDb().prepare('DELETE FROM ancestors WHERE research_job_id = ? AND ascendancy_number = ?').run(researchJobId, ascNumber);
+}
+
 // Search Candidates
 function addSearchCandidate(candidate) {
   getDb().prepare(`
@@ -250,7 +254,7 @@ module.exports = {
   initialize,
   getSetting, setSetting,
   createResearchJob, getResearchJob, listResearchJobs, updateResearchJob, updateJobProgress,
-  addAncestor, getAncestors, getAncestorById, deleteAncestors,
+  addAncestor, getAncestors, getAncestorById, deleteAncestors, deleteAncestorByAscNumber,
   addSearchCandidate, getSearchCandidates,
   getJobStats,
 };

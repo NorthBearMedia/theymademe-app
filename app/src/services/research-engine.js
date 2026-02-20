@@ -98,30 +98,18 @@ function yearDiff(date1, date2) {
 }
 
 // Format a date string for the FamilySearch API (q.birthLikeDate / q.deathLikeDate)
-// FS expects formats like "1959", "1 September 1959", "September 1959"
+// FamilySearch beta API ONLY accepts year-only format (e.g., "1959").
+// Any other format ("1 September 1959", "Sep 1959") causes 400 errors.
 function formatDateForApi(dateStr) {
   if (!dateStr) return null;
   const parsed = normalizeDate(dateStr);
-  if (!parsed) return dateStr; // Pass through if unparseable
-
-  const MONTHS = ['January','February','March','April','May','June',
-    'July','August','September','October','November','December'];
-
-  if (parsed.day && parsed.month) {
-    return `${parsed.day} ${MONTHS[parsed.month - 1]} ${parsed.year}`;
-  }
-  if (parsed.month) {
-    return `${MONTHS[parsed.month - 1]} ${parsed.year}`;
-  }
+  if (!parsed) return null; // Don't pass unparseable dates
   return String(parsed.year);
 }
 
-// Format a date string as year-only for broader FamilySearch searches
+// Alias for clarity — both produce year-only for the beta API
 function formatYearOnly(dateStr) {
-  if (!dateStr) return null;
-  const parsed = normalizeDate(dateStr);
-  if (!parsed) return dateStr;
-  return String(parsed.year);
+  return formatDateForApi(dateStr);
 }
 
 // ─── Source Classification ───────────────────────────────────────────
@@ -273,6 +261,13 @@ class ResearchEngine {
 
       await this.traverse(1, 0, subjectInfo);
 
+      // If subject was rejected (not found in FS), try parent-first fallback
+      const subjectAncestor = this.db.getAncestors(this.jobId).find(a => a.ascendancy_number === 1);
+      if (!subjectAncestor || subjectAncestor.confidence_score < 50) {
+        console.log('[Fallback] Subject not found in FS tree — trying parent-first strategy');
+        await this.parentFirstFallback(subjectInfo);
+      }
+
       // Complete
       const ancestors = this.db.getAncestors(this.jobId);
       const verified = ancestors.filter(a => a.confidence_score >= 90).length;
@@ -393,6 +388,114 @@ class ResearchEngine {
       const anchorInfo = this.knownAnchors[motherAsc];
       if (anchorInfo.givenName || anchorInfo.surname) {
         await this.traverse(motherAsc, generation + 1, anchorInfo);
+      }
+    }
+  }
+
+  async parentFirstFallback(subjectInfo) {
+    // Try to find parents in FS and build the tree from them
+    // This handles cases where the subject is too recent/living to be in FS tree
+
+    // Try father (asc#2) search
+    const fatherAnchor = this.knownAnchors[2];
+    const motherAnchor = this.knownAnchors[3];
+
+    let fatherResult = null;
+    let motherResult = null;
+
+    if (fatherAnchor && (fatherAnchor.givenName || fatherAnchor.surname)) {
+      console.log(`[Fallback] Searching for father: ${fatherAnchor.givenName} ${fatherAnchor.surname}`);
+      const fatherInfo = {
+        givenName: fatherAnchor.givenName || '',
+        surname: fatherAnchor.surname || subjectInfo.surname, // Father likely has same surname
+        birthPlace: subjectInfo.birthPlace, // Same area likely
+        ...(fatherAnchor.birthDate ? { birthDate: fatherAnchor.birthDate } : {}),
+      };
+      fatherResult = await this.verifyPerson(fatherInfo, 2, 1);
+    }
+
+    if (motherAnchor && (motherAnchor.givenName || motherAnchor.surname)) {
+      console.log(`[Fallback] Searching for mother: ${motherAnchor.givenName} ${motherAnchor.surname}`);
+      const motherInfo = {
+        givenName: motherAnchor.givenName || '',
+        surname: motherAnchor.surname || '',
+        birthPlace: subjectInfo.birthPlace,
+        ...(motherAnchor.birthDate ? { birthDate: motherAnchor.birthDate } : {}),
+      };
+      motherResult = await this.verifyPerson(motherInfo, 3, 1);
+    }
+
+    // If at least one parent was found, store the subject with moderate confidence
+    // based on customer-provided data (we trust the customer's own info about themselves)
+    if ((fatherResult && fatherResult.verified) || (motherResult && motherResult.verified)) {
+      console.log('[Fallback] Parent found — storing subject from customer data');
+
+      // Delete the rejected subject record and replace with a customer-data-based one
+      this.db.deleteAncestorByAscNumber(this.jobId, 1);
+
+      // Store subject from customer-provided info with "Possible" confidence
+      // The customer knows their own name, DOB, etc.
+      this.db.addAncestor({
+        research_job_id: this.jobId,
+        fs_person_id: '',
+        name: `${subjectInfo.givenName} ${subjectInfo.surname}`,
+        gender: 'Unknown',
+        birth_date: subjectInfo.birthDate || '',
+        birth_place: subjectInfo.birthPlace || '',
+        death_date: subjectInfo.deathDate || '',
+        death_place: subjectInfo.deathPlace || '',
+        ascendancy_number: 1,
+        generation: 0,
+        confidence: 'possible',
+        sources: [],
+        raw_data: {},
+        confidence_score: 65,
+        confidence_level: 'Possible',
+        evidence_chain: [],
+        search_log: [{ pass: 'fallback', strategy: 'customer_provided', results_count: 0, note: 'Subject not in FS tree — data from customer intake form' }],
+        conflicts: [],
+        verification_notes: 'Subject not found in FamilySearch tree (may be living/recent). Data from customer intake form. Parents verified via parent-first fallback strategy.',
+      });
+
+      // Continue traversal from verified parents
+      if (fatherResult && fatherResult.verified && !this.visitedIds.has(fatherResult.personId)) {
+        this.visitedIds.add(fatherResult.personId);
+        try {
+          const parents = await fsApi.getParents(fatherResult.personId);
+          const fatherFatherAsc = 4;
+          const fatherMotherAsc = 5;
+
+          if (parents.father) {
+            const info = this.buildParentKnownInfo(parents.father, fatherFatherAsc);
+            await this.traverse(fatherFatherAsc, 2, info);
+          }
+          if (parents.mother) {
+            const info = this.buildParentKnownInfo(parents.mother, fatherMotherAsc);
+            await this.traverse(fatherMotherAsc, 2, info);
+          }
+        } catch (err) {
+          console.log(`[Fallback] Could not get father's parents: ${err.message}`);
+        }
+      }
+
+      if (motherResult && motherResult.verified && !this.visitedIds.has(motherResult.personId)) {
+        this.visitedIds.add(motherResult.personId);
+        try {
+          const parents = await fsApi.getParents(motherResult.personId);
+          const motherFatherAsc = 6;
+          const motherMotherAsc = 7;
+
+          if (parents.father) {
+            const info = this.buildParentKnownInfo(parents.father, motherFatherAsc);
+            await this.traverse(motherFatherAsc, 2, info);
+          }
+          if (parents.mother) {
+            const info = this.buildParentKnownInfo(parents.mother, motherMotherAsc);
+            await this.traverse(motherMotherAsc, 2, info);
+          }
+        } catch (err) {
+          console.log(`[Fallback] Could not get mother's parents: ${err.message}`);
+        }
       }
     }
   }
