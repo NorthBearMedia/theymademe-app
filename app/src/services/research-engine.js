@@ -581,6 +581,9 @@ class ResearchEngine {
     let parents;
     try {
       parents = await fsApi.getParents(personId);
+      // Mark getParents results as tree-sourced (they're linked in FS tree)
+      if (parents.father) parents.father._fromTree = true;
+      if (parents.mother) parents.mother._fromTree = true;
       console.log(`[Traverse] Parents for ${personId}: father=${parents.father?.id || 'none'}, mother=${parents.mother?.id || 'none'}`);
     } catch (err) {
       console.log(`Could not get parents for ${personId}: ${err.message}`);
@@ -603,6 +606,7 @@ class ResearchEngine {
               birthPlace: p.birthPlace || '',
               deathDate: p.deathDate || '',
               deathPlace: p.deathPlace || '',
+              _fromTree: true, // Linked in FS tree
             };
             console.log(`[Traverse] Ancestry found father: ${p.name} (${p.fs_person_id})`);
           }
@@ -615,6 +619,7 @@ class ResearchEngine {
               birthPlace: p.birthPlace || '',
               deathDate: p.deathDate || '',
               deathPlace: p.deathPlace || '',
+              _fromTree: true, // Linked in FS tree
             };
             console.log(`[Traverse] Ancestry found mother: ${p.name} (${p.fs_person_id})`);
           }
@@ -781,6 +786,7 @@ class ResearchEngine {
       deathDate: fsParent.deathDate || '',
       deathPlace: fsParent.deathPlace || '',
       fsPersonId: fsParent.id, // FS already has a candidate — we'll verify them
+      fromFsTree: !!fsParent._fromTree, // True only when linked in FS tree (getParents/ancestry)
     };
 
     // Parse the FS parent name
@@ -855,7 +861,17 @@ class ResearchEngine {
     // Score all candidates
     const expectedGender = this.getExpectedGender(ascNumber);
     const scored = allCandidates.map(candidate => {
-      const score = this.evaluateCandidate(candidate, knownInfo, expectedGender);
+      let score = this.evaluateCandidate(candidate, knownInfo, expectedGender);
+
+      // Tree-link bonus: if this candidate came from FS's own tree (getParents/ancestry)
+      // and matches the expected person ID, they're already linked as a parent in the tree.
+      // This is strong structural evidence worth a significant bonus.
+      if (knownInfo.fromFsTree && knownInfo.fsPersonId && candidate.id === knownInfo.fsPersonId) {
+        const bonus = 30;
+        score = Math.min(100, score + bonus);
+        console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} for ${candidate.name} (${candidate.id}) → ${score}`);
+      }
+
       return { ...candidate, computedScore: score };
     });
 
@@ -905,7 +921,9 @@ class ResearchEngine {
 
     // Build verification notes
     const notes = [];
-    if (knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
+    if (knownInfo.fromFsTree && knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
+      notes.push('Linked in FamilySearch tree (parent relationship) — high trust');
+    } else if (knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
       notes.push('Verified against FamilySearch parent link');
     }
     const anchor = this.knownAnchors[ascNumber];
