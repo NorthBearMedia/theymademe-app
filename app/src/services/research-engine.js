@@ -112,6 +112,97 @@ function formatYearOnly(dateStr) {
   return formatDateForApi(dateStr);
 }
 
+// ─── Given Name Variants (UK/English) ────────────────────────────────
+
+const GIVEN_NAME_VARIANTS = {
+  william: ['bill', 'will', 'wm', 'billy', 'willie'],
+  elizabeth: ['betty', 'bess', 'liz', 'eliza', 'beth', 'lizzie', 'betsy'],
+  margaret: ['peggy', 'maggie', 'meg', 'marge', 'madge', 'margie'],
+  james: ['jim', 'jas', 'jimmy', 'jamie'],
+  robert: ['bob', 'rob', 'bert', 'bobby', 'robbie'],
+  richard: ['dick', 'rick', 'richie'],
+  thomas: ['tom', 'thos', 'tommy'],
+  henry: ['harry', 'hal'],
+  edward: ['ted', 'ned', 'ed', 'eddie', 'teddy'],
+  frederick: ['fred', 'freddy', 'freddie'],
+  janet: ['jan', 'janice', 'jennet'],
+  catherine: ['kate', 'kathy', 'katherine', 'kathryn', 'kitty'],
+  john: ['jack', 'jno', 'johnny', 'jon'],
+  charles: ['charlie', 'chas', 'chuck'],
+  walter: ['walt', 'wally', 'wat'],
+  george: ['geo'],
+  joseph: ['joe', 'jos'],
+  samuel: ['sam', 'saml'],
+  benjamin: ['ben', 'benj'],
+  alexander: ['alex', 'alec', 'sandy'],
+  andrew: ['drew', 'andy'],
+  dorothy: ['dot', 'dolly', 'dora'],
+  florence: ['flo', 'flossie'],
+  mary: ['polly', 'molly', 'may', 'mamie'],
+  sarah: ['sally', 'sadie'],
+  ann: ['annie', 'anna', 'nan', 'nancy', 'anne'],
+  alice: ['ally', 'allie'],
+  frances: ['fanny', 'fran'],
+  helen: ['nell', 'nellie', 'ellen', 'ella'],
+  martha: ['patty', 'matty'],
+  eleanor: ['nell', 'nelly', 'nora'],
+  susannah: ['susan', 'sue', 'sukey'],
+  harriet: ['hattie', 'hetty'],
+  albert: ['bert', 'al'],
+  arthur: ['art'],
+  leonard: ['len', 'lenny'],
+  alfred: ['alf', 'alfie'],
+  ernest: ['ernie'],
+  harold: ['harry', 'hal'],
+  reginald: ['reg', 'reggie'],
+  ronald: ['ron', 'ronnie'],
+  donald: ['don', 'donnie'],
+  gerald: ['gerry', 'jerry'],
+  norman: ['norm'],
+  alan: ['al', 'allan', 'allen'],
+};
+
+// Build reverse lookup: variant → canonical names
+const VARIANT_REVERSE = {};
+for (const [canonical, variants] of Object.entries(GIVEN_NAME_VARIANTS)) {
+  for (const v of variants) {
+    if (!VARIANT_REVERSE[v]) VARIANT_REVERSE[v] = [];
+    VARIANT_REVERSE[v].push(canonical);
+  }
+  // Also map canonical to itself for bidirectional lookup
+  if (!VARIANT_REVERSE[canonical]) VARIANT_REVERSE[canonical] = [];
+}
+
+function getGivenNameVariants(givenName) {
+  if (!givenName) return [];
+  const first = givenName.trim().split(/\s+/)[0].toLowerCase();
+  const variants = new Set();
+  // Forward: canonical → variants
+  if (GIVEN_NAME_VARIANTS[first]) {
+    for (const v of GIVEN_NAME_VARIANTS[first]) variants.add(v);
+  }
+  // Reverse: variant → canonical
+  if (VARIANT_REVERSE[first]) {
+    for (const c of VARIANT_REVERSE[first]) {
+      variants.add(c);
+      if (GIVEN_NAME_VARIANTS[c]) {
+        for (const v of GIVEN_NAME_VARIANTS[c]) variants.add(v);
+      }
+    }
+  }
+  variants.delete(first); // Remove self
+  return [...variants];
+}
+
+function isNameVariant(name1, name2) {
+  if (!name1 || !name2) return false;
+  const a = name1.toLowerCase().split(/\s+/)[0];
+  const b = name2.toLowerCase().split(/\s+/)[0];
+  if (a === b) return true;
+  const aVariants = getGivenNameVariants(a);
+  return aVariants.includes(b);
+}
+
 // ─── Source Classification ───────────────────────────────────────────
 
 function classifySource(source) {
@@ -493,7 +584,133 @@ class ResearchEngine {
       console.log(`[Traverse] Parents for ${personId}: father=${parents.father?.id || 'none'}, mother=${parents.mother?.id || 'none'}`);
     } catch (err) {
       console.log(`Could not get parents for ${personId}: ${err.message}`);
-      return;
+      parents = { father: null, mother: null };
+    }
+
+    // Fallback 1: If getParents returned nothing, try the ancestry/pedigree endpoint
+    if (!parents.father && !parents.mother) {
+      try {
+        console.log(`[Traverse] getParents empty — trying ancestry endpoint for ${personId}`);
+        const ancestry = await fsApi.getAncestry(personId, 1);
+        for (const p of ancestry) {
+          const ascNum = p.ascendancy_number;
+          if (ascNum === 2 && !parents.father) {
+            parents.father = {
+              id: p.fs_person_id,
+              name: p.name,
+              gender: p.gender || 'Male',
+              birthDate: p.birthDate || '',
+              birthPlace: p.birthPlace || '',
+              deathDate: p.deathDate || '',
+              deathPlace: p.deathPlace || '',
+            };
+            console.log(`[Traverse] Ancestry found father: ${p.name} (${p.fs_person_id})`);
+          }
+          if (ascNum === 3 && !parents.mother) {
+            parents.mother = {
+              id: p.fs_person_id,
+              name: p.name,
+              gender: p.gender || 'Female',
+              birthDate: p.birthDate || '',
+              birthPlace: p.birthPlace || '',
+              deathDate: p.deathDate || '',
+              deathPlace: p.deathPlace || '',
+            };
+            console.log(`[Traverse] Ancestry found mother: ${p.name} (${p.fs_person_id})`);
+          }
+        }
+      } catch (err) {
+        console.log(`[Traverse] Ancestry endpoint also failed for ${personId}: ${err.message}`);
+      }
+    }
+
+    // Fallback 2: If still no parents, SEARCH for them using child's data
+    if (!parents.father && !parents.mother) {
+      console.log(`[Traverse] Both fallbacks empty — searching for parents of asc#${fromAsc}`);
+      const childRecord = this.db.getAncestorByAscNumber(this.jobId, fromAsc);
+      if (childRecord) {
+        const childBirth = normalizeDate(childRecord.birth_date);
+        const estimatedParentBirth = childBirth?.year ? String(childBirth.year - 28) : null;
+        const childSurname = parseNameParts(childRecord.name).surname;
+
+        // Synthesize parent objects from search so the main logic below can handle them
+        const fatherAscNum = fromAsc * 2;
+        const motherAscNum = fromAsc * 2 + 1;
+        const fatherAnchor = this.knownAnchors[fatherAscNum];
+        const motherAnchor = this.knownAnchors[motherAscNum];
+
+        // Search for father
+        if (fatherAnchor?.givenName || childSurname) {
+          const fatherSearch = {
+            givenName: fatherAnchor?.givenName || '',
+            surname: fatherAnchor?.surname || childSurname,
+            birthDate: fatherAnchor?.birthDate || estimatedParentBirth || '',
+            birthPlace: fatherAnchor?.birthPlace || childRecord.birth_place || '',
+          };
+          console.log(`[Traverse] Searching for father: ${fatherSearch.givenName} ${fatherSearch.surname}`);
+          try {
+            const results = await fsApi.searchPerson({ ...fatherSearch, count: 5 });
+            if (results.length > 0) {
+              const expectedGender = 'Male';
+              const scored = results.map(c => ({
+                ...c,
+                computedScore: this.evaluateCandidate(c, fatherSearch, expectedGender),
+              }));
+              scored.sort((a, b) => b.computedScore - a.computedScore);
+              if (scored[0].computedScore >= 50) {
+                parents.father = {
+                  id: scored[0].id,
+                  name: scored[0].name,
+                  gender: scored[0].gender || 'Male',
+                  birthDate: scored[0].birthDate || '',
+                  birthPlace: scored[0].birthPlace || '',
+                  deathDate: scored[0].deathDate || '',
+                  deathPlace: scored[0].deathPlace || '',
+                };
+                console.log(`[Traverse] Search found father: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore}`);
+              }
+            }
+          } catch (err) {
+            console.log(`[Traverse] Father search failed: ${err.message}`);
+          }
+        }
+
+        // Search for mother
+        if (motherAnchor?.givenName || motherAnchor?.surname) {
+          const motherSearch = {
+            givenName: motherAnchor?.givenName || '',
+            surname: motherAnchor?.surname || '',
+            birthDate: motherAnchor?.birthDate || estimatedParentBirth || '',
+            birthPlace: motherAnchor?.birthPlace || childRecord.birth_place || '',
+          };
+          console.log(`[Traverse] Searching for mother: ${motherSearch.givenName} ${motherSearch.surname}`);
+          try {
+            const results = await fsApi.searchPerson({ ...motherSearch, count: 5 });
+            if (results.length > 0) {
+              const expectedGender = 'Female';
+              const scored = results.map(c => ({
+                ...c,
+                computedScore: this.evaluateCandidate(c, motherSearch, expectedGender),
+              }));
+              scored.sort((a, b) => b.computedScore - a.computedScore);
+              if (scored[0].computedScore >= 50) {
+                parents.mother = {
+                  id: scored[0].id,
+                  name: scored[0].name,
+                  gender: scored[0].gender || 'Female',
+                  birthDate: scored[0].birthDate || '',
+                  birthPlace: scored[0].birthPlace || '',
+                  deathDate: scored[0].deathDate || '',
+                  deathPlace: scored[0].deathPlace || '',
+                };
+                console.log(`[Traverse] Search found mother: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore}`);
+              }
+            }
+          } catch (err) {
+            console.log(`[Traverse] Mother search failed: ${err.message}`);
+          }
+        }
+      }
     }
 
     const fatherAsc = fromAsc * 2;
@@ -913,6 +1130,27 @@ class ResearchEngine {
       }
     }
 
+    // Pass 6: NICKNAME — search using common name variants (William→Bill, etc.)
+    if (knownInfo.givenName && allCandidates.length < 5) {
+      const nicknames = getGivenNameVariants(knownInfo.givenName);
+      for (const nick of nicknames.slice(0, 2)) { // Max 2 nickname searches
+        const pass6Query = {
+          givenName: nick.charAt(0).toUpperCase() + nick.slice(1),
+          surname: knownInfo.surname,
+          birthDate: apiBirthDate,
+          birthPlace: knownInfo.birthPlace,
+          count: 5,
+        };
+        try {
+          const results = await fsApi.searchPerson(pass6Query);
+          addResults(results, 6, JSON.stringify(pass6Query));
+          searchLog.push({ pass: 6, strategy: `nickname:${nick}`, query: pass6Query, results_count: results.length });
+        } catch (err) {
+          searchLog.push({ pass: 6, strategy: `nickname:${nick}`, error: err.message, results_count: 0 });
+        }
+      }
+    }
+
     return allCandidates;
   }
 
@@ -963,9 +1201,16 @@ class ResearchEngine {
             });
           if (initialMatch) {
             score += Math.round(nameMax * 0.38); // Near-full given name match (first + initials)
+          } else if (candidateRest.length > 0 && knownRest.length > 0 &&
+                     candidateRest[0].length > 1 && knownRest[0].length > 1 &&
+                     candidateRest[0] !== knownRest[0]) {
+            // Explicit middle name conflict (e.g., "Janet Ruth" vs "Janet Mary")
+            score += Math.round(nameMax * 0.15);
           } else {
-            score += Math.round(nameMax * 0.3); // First name exact match
+            score += Math.round(nameMax * 0.3); // First name exact match, no middle name conflict
           }
+        } else if (isNameVariant(candidateGiven, knownGiven)) {
+          score += Math.round(nameMax * 0.25); // Nickname/variant match (e.g., William→Bill)
         } else if (nameContains(candidateGiven, knownGiven) || nameContains(knownGiven, candidateGiven)) {
           score += Math.round(nameMax * 0.12); // Partial — shared names but different order/first name
         }

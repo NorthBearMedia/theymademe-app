@@ -158,8 +158,10 @@ async function getParents(personId) {
     // Parse childAndParentsRelationships
     const relationships = data.childAndParentsRelationships || [];
     if (relationships.length > 0) {
-      // Use the first relationship (biological parents)
-      const rel = relationships[0];
+      // Prefer biological parent relationship, fall back to first
+      const rel = relationships.find(r =>
+        !r.type || r.type.includes('Biological') || r.type.includes('Birth')
+      ) || relationships[0];
 
       if (rel.father?.resourceId) {
         const fatherPerson = personMap[rel.father.resourceId];
