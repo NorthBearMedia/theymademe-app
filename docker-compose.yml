@@ -70,11 +70,27 @@ services:
     volumes:
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/www/certbot
-    command: >
-      certonly --webroot --webroot-path=/var/www/certbot
-      --email admin@theymademe.co.uk --agree-tos --no-eff-email
-      -d theymademe.co.uk -d www.theymademe.co.uk
-      --non-interactive
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # If a real LE cert already exists (from a previous volume), just renew
+        if [ -d /etc/letsencrypt/archive/theymademe.co.uk ]; then
+          echo "Existing Let's Encrypt cert found, attempting renewal..."
+          certbot renew --non-interactive || true
+          exit 0
+        fi
+        # Remove self-signed placeholder if it exists (created by nginx bootstrap)
+        if [ -d /etc/letsencrypt/live/theymademe.co.uk ]; then
+          rm -rf /etc/letsencrypt/live/theymademe.co.uk
+          rm -rf /etc/letsencrypt/renewal/theymademe.co.uk.conf
+          rm -rf /etc/letsencrypt/archive/theymademe.co.uk
+        fi
+        echo "Requesting new Let's Encrypt certificate..."
+        certbot certonly --webroot --webroot-path=/var/www/certbot \
+          --email admin@theymademe.co.uk --agree-tos --no-eff-email \
+          -d theymademe.co.uk -d www.theymademe.co.uk \
+          --non-interactive
     depends_on:
       - nginx
     restart: "no"
