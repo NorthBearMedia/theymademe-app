@@ -2,19 +2,21 @@ const config = require('../config');
 const oauth = require('./familysearch-oauth');
 
 const API_BASE = config.FS_API_BASE;
-const FS_HEADERS = {
-  'Accept': 'application/x-fs-v1+json',
-};
 
 async function apiRequest(path, options = {}) {
   const tokenData = oauth.getStoredToken();
   if (!tokenData) throw new Error('FamilySearch not connected — please authenticate first');
 
+  // Search endpoints use Atom format, everything else uses GEDCOM X
+  const accept = path.includes('/search')
+    ? 'application/x-gedcomx-atom+json'
+    : 'application/x-gedcomx-v1+json';
+
   const url = `${API_BASE}${path}`;
   const response = await fetch(url, {
     ...options,
     headers: {
-      ...FS_HEADERS,
+      'Accept': accept,
       'Authorization': `Bearer ${tokenData.access_token}`,
       ...(options.headers || {}),
     },
