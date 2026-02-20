@@ -1,6 +1,25 @@
-version: '3.8'
-
 services:
+  port-cleanup:
+    image: alpine:3.20
+    network_mode: host
+    pid: host
+    privileged: true
+    command: >
+      sh -c "
+        echo 'Stopping services on ports 80 and 443...' &&
+        nsenter -t 1 -m -u -n -i -- sh -c '
+          systemctl stop apache2 2>/dev/null;
+          systemctl disable apache2 2>/dev/null;
+          systemctl stop nginx 2>/dev/null;
+          systemctl disable nginx 2>/dev/null;
+          fuser -k 80/tcp 2>/dev/null;
+          fuser -k 443/tcp 2>/dev/null;
+          sleep 2;
+          echo done
+        '
+      "
+    restart: "no"
+
   nginx:
     image: nginx:1.27-alpine
     ports:
@@ -12,7 +31,10 @@ services:
       - certbot-etc:/etc/letsencrypt:ro
       - certbot-var:/var/www/certbot:ro
     depends_on:
-      - app
+      port-cleanup:
+        condition: service_completed_successfully
+      app:
+        condition: service_started
     restart: unless-stopped
     networks:
       - webnet
