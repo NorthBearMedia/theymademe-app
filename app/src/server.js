@@ -37,6 +37,7 @@ app.use(express.json());
 app.use('/admin/static', express.static(path.join(__dirname, 'public')));
 
 // Sessions
+app.set('trust proxy', 1); // Trust first proxy (nginx) for X-Forwarded-Proto
 app.use(session({
   store: new SQLiteStore({
     db: 'sessions.sqlite',
@@ -47,7 +48,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,
+    secure: 'auto', // Uses HTTPS when available, HTTP when not (e.g. during SSL bootstrap)
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax',
