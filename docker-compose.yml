@@ -65,6 +65,22 @@ services:
     networks:
       - webnet
 
+  certbot-init:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/www/certbot
+    command: >
+      certonly --webroot --webroot-path=/var/www/certbot
+      --email admin@theymademe.co.uk --agree-tos --no-eff-email
+      -d theymademe.co.uk -d www.theymademe.co.uk
+      --non-interactive
+    depends_on:
+      - nginx
+    restart: "no"
+    networks:
+      - webnet
+
   certbot:
     image: certbot/certbot:latest
     volumes:
@@ -72,7 +88,8 @@ services:
       - certbot-var:/var/www/certbot
     entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;"
     depends_on:
-      - nginx
+      certbot-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - webnet
