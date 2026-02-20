@@ -66,11 +66,14 @@
                             <span class="badge <%= j.status === 'completed' ? 'badge-success' : j.status === 'running' ? 'badge-info' : j.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= j.status %></span>
                         </td>
                         <td style="color:var(--text-muted);font-size:13px;"><%= new Date(j.created_at).toLocaleDateString('en-GB') %></td>
-                        <td>
+                        <td style="white-space:nowrap;">
                             <a href="/admin/research/<%= j.id %>" class="btn btn-secondary btn-sm">View</a>
                             <% if (j.status === 'completed') { %>
                                 <a href="/admin/export/gedcom/<%= j.id %>" class="btn btn-primary btn-sm">GEDCOM</a>
                             <% } %>
+                            <form action="/admin/research/<%= j.id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('Delete this research job for <%= j.customer_name %>? This cannot be undone.');">
+                                <button type="submit" class="btn btn-sm" style="background:#dc3545;color:white;border:none;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;">Delete</button>
+                            </form>
                         </td>
                     </tr>
                 <% }); %>

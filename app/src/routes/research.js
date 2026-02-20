@@ -175,6 +175,45 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
   });
 });
 
+// Delete entire research job
+router.post('/:id/delete', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  db.deleteResearchJob(req.params.id);
+  res.redirect('/admin/dashboard');
+});
+
+// Reject ancestor and re-research (deeper search)
+router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
+  if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  const ascNumber = ancestor.ascendancy_number;
+
+  // Delete this ancestor AND all their descendants (children in the tree are further out)
+  const deleted = db.deleteDescendantAncestors(req.params.id, ascNumber);
+  console.log(`[Re-research] Deleted asc#${ascNumber} and ${deleted.length - 1} descendants for job ${req.params.id}`);
+
+  // Rebuild input data from the job
+  const inputData = job.input_data || {};
+
+  // Re-run research engine — it will pick up from where ancestors are missing
+  const engine = new ResearchEngine(db, req.params.id, inputData, job.generations);
+
+  // Mark job as running again
+  db.updateResearchJob(req.params.id, { status: 'running', progress_message: `Re-researching ancestor #${ascNumber}...` });
+
+  engine.run().catch(err => {
+    console.error(`Re-research for job ${req.params.id} failed:`, err);
+  });
+
+  res.redirect(`/admin/research/${req.params.id}`);
+});
+
 // Ancestor detail view
 router.get('/:id/ancestor/:ancestorId', requireAuth, (req, res) => {
   const job = db.getResearchJob(req.params.id);

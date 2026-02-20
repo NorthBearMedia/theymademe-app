@@ -10,7 +10,9 @@
         <div style="display:flex;gap:8px;align-items:center;">
             <span class="badge <%= job.status === 'completed' ? 'badge-success' : job.status === 'running' ? 'badge-info' : job.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= job.status %></span>
             <% if (job.status === 'completed') { %>
-                <a href="/admin/export/gedcom/<%= job.id %>" class="btn btn-primary btn-sm">Download GEDCOM</a>
+                <a href="/admin/export/pdf/<%= job.id %>/preview" target="_blank" class="btn btn-primary btn-sm">Preview PDF</a>
+                <a href="/admin/export/pdf/<%= job.id %>" class="btn btn-primary btn-sm">Download PDF</a>
+                <a href="/admin/export/gedcom/<%= job.id %>" class="btn btn-secondary btn-sm">GEDCOM</a>
             <% } %>
         </div>
     </div>
@@ -167,7 +169,13 @@
                         <% if (a.evidence_chain && a.evidence_chain.length > 0) { %>
                             <span style="color:var(--sage);"><%= a.evidence_chain.length %> evidence items</span>
                         <% } %>
-                        <a href="/admin/research/<%= job.id %>/ancestor/<%= a.id %>" style="color:var(--forest);text-decoration:underline;font-size:11px;">View Evidence</a>
+                        <a href="/admin/research/<%= job.id %>/ancestor/<%= a.id %>" style="color:var(--forest);text-decoration:underline;font-size:11px;">View Details</a>
+                        <% if (a.confidence_level !== 'Customer Data' && a.ascendancy_number > 1 && job.status === 'completed') { %>
+                            <form action="/admin/research/<%= job.id %>/ancestor/<%= a.id %>/reresearch" method="POST" style="display:inline;"
+                                  onsubmit="return confirm('Reject ' + '<%= a.name.replace(/'/g, "\\'") %>' + ' and re-research this branch?');">
+                                <button type="submit" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:11px;text-decoration:underline;padding:0;">Reject</button>
+                            </form>
+                        <% } %>
                     </div>
                 </div>
             </div>

@@ -270,6 +270,37 @@ function getSearchCandidates(researchJobId, ascNumber) {
   });
 }
 
+function deleteResearchJob(id) {
+  const conn = getDb();
+  conn.prepare('DELETE FROM search_candidates WHERE research_job_id = ?').run(id);
+  conn.prepare('DELETE FROM ancestors WHERE research_job_id = ?').run(id);
+  conn.prepare('DELETE FROM research_jobs WHERE id = ?').run(id);
+}
+
+function deleteDescendantAncestors(researchJobId, ascNumber) {
+  // Delete this ancestor and all descendants in the ahnentafel tree
+  // Descendants of asc N are: 2N (father), 2N+1 (mother), 4N, 4N+1, 4N+2, 4N+3, etc.
+  const toDelete = [ascNumber];
+  let i = 0;
+  while (i < toDelete.length) {
+    const asc = toDelete[i];
+    const childFather = asc * 2;
+    const childMother = asc * 2 + 1;
+    // Only add if they'd be within a reasonable range (up to gen 10 = asc 1023)
+    if (childFather <= 1023) {
+      toDelete.push(childFather);
+      toDelete.push(childMother);
+    }
+    i++;
+  }
+  const conn = getDb();
+  for (const asc of toDelete) {
+    conn.prepare('DELETE FROM search_candidates WHERE research_job_id = ? AND target_asc_number = ?').run(researchJobId, asc);
+    conn.prepare('DELETE FROM ancestors WHERE research_job_id = ? AND ascendancy_number = ?').run(researchJobId, asc);
+  }
+  return toDelete;
+}
+
 function getJobStats() {
   const conn = getDb();
   return {
@@ -287,5 +318,6 @@ module.exports = {
   addAncestor, getAncestors, getAncestorById, deleteAncestors, deleteAncestorByAscNumber,
   getAncestorByAscNumber, updateAncestorByAscNumber, deleteSearchCandidates,
   addSearchCandidate, getSearchCandidates,
+  deleteResearchJob, deleteDescendantAncestors,
   getJobStats,
 };
