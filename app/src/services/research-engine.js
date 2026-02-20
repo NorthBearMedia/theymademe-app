@@ -281,9 +281,11 @@ class ResearchEngine {
         }
 
         const fatherResult = await this.verifyAndUpdate(2, 1, fatherInfo);
+        console.log(`[Engine] Father result: verified=${fatherResult.verified}, personId=${fatherResult.personId}, confidence=${fatherResult.confidence}`);
 
         // Traverse father's parents if verified
         if (fatherResult.verified && fatherResult.personId) {
+          console.log(`[Engine] Traversing father's parents from ${fatherResult.personId}`);
           await this.traverseParents(fatherResult.personId, 2, 1);
         }
       }
@@ -303,8 +305,10 @@ class ResearchEngine {
         }
 
         const motherResult = await this.verifyAndUpdate(3, 1, motherInfo);
+        console.log(`[Engine] Mother result: verified=${motherResult.verified}, personId=${motherResult.personId}, confidence=${motherResult.confidence}`);
 
         if (motherResult.verified && motherResult.personId) {
+          console.log(`[Engine] Traversing mother's parents from ${motherResult.personId}`);
           await this.traverseParents(motherResult.personId, 3, 1);
         }
       }
@@ -312,6 +316,7 @@ class ResearchEngine {
       // If subject was found in FS but parents weren't provided by customer,
       // still try to find parents through FS tree links
       if (subjectResult.verified && subjectResult.personId) {
+        console.log(`[Engine] Traversing subject's parents from ${subjectResult.personId}`);
         await this.traverseParents(subjectResult.personId, 1, 0);
       }
 
@@ -401,15 +406,23 @@ class ResearchEngine {
 
   // From a verified person, get their parents from FS and traverse each branch
   async traverseParents(personId, fromAsc, fromGen) {
-    if (fromGen >= this.generations) return;
+    console.log(`[Traverse] traverseParents(${personId}, asc#${fromAsc}, gen${fromGen}) — maxGen=${this.generations}`);
+    if (fromGen >= this.generations) {
+      console.log(`[Traverse] Stopping: gen ${fromGen} >= maxGen ${this.generations}`);
+      return;
+    }
 
     // Prevent circular references
-    if (this.visitedIds.has(personId)) return;
+    if (this.visitedIds.has(personId)) {
+      console.log(`[Traverse] Already visited ${personId}`);
+      return;
+    }
     this.visitedIds.add(personId);
 
     let parents;
     try {
       parents = await fsApi.getParents(personId);
+      console.log(`[Traverse] Parents for ${personId}: father=${parents.father?.id || 'none'}, mother=${parents.mother?.id || 'none'}`);
     } catch (err) {
       console.log(`Could not get parents for ${personId}: ${err.message}`);
       return;
