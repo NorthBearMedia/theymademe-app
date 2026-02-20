@@ -14,9 +14,9 @@ module.exports = {
   // FamilySearch OAuth
   FS_CLIENT_ID: process.env.FS_CLIENT_ID || 'b00CM36K81ADFVOS60K8',
   FS_REDIRECT_URI: process.env.FS_REDIRECT_URI || 'https://theymademe.co.uk/admin/familysearch/callback',
-  FS_AUTH_URL: process.env.FS_AUTH_URL || 'https://ident.familysearch.org/cis-web/oauth2/v3/authorization',
-  FS_TOKEN_URL: process.env.FS_TOKEN_URL || 'https://ident.familysearch.org/cis-web/oauth2/v3/token',
-  FS_API_BASE: process.env.FS_API_BASE || 'https://api.familysearch.org',
+  FS_AUTH_URL: process.env.FS_AUTH_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/authorization',
+  FS_TOKEN_URL: process.env.FS_TOKEN_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/token',
+  FS_API_BASE: process.env.FS_API_BASE || 'https://apibeta.familysearch.org',
 
   // Paths
   DATA_DIR: process.env.DATA_DIR || '/app/data',
