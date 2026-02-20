@@ -451,15 +451,28 @@ class ResearchEngine {
       if (fatherFsId) {
         console.log(`[Engine] Traversing father's parents from ${fatherFsId}`);
         await this.traverseParents(fatherFsId, 2, 1);
+      } else if (this.knownAnchors[2]) {
+        // Father had no FS match — search for grandparents directly using anchors
+        console.log(`[Engine] Father not matched in FS — searching for grandparents directly`);
+        await this.searchParentsDirectly(2, 1);
       }
       if (motherFsId) {
         console.log(`[Engine] Traversing mother's parents from ${motherFsId}`);
         await this.traverseParents(motherFsId, 3, 1);
+      } else if (this.knownAnchors[3]) {
+        // Mother had no FS match — search for grandparents directly using anchors
+        console.log(`[Engine] Mother not matched in FS — searching for grandparents directly`);
+        await this.searchParentsDirectly(3, 1);
       }
       // Also traverse subject's FS parents (may discover parents not provided by customer)
       if (subjectFsId) {
         console.log(`[Engine] Traversing subject's FS parents from ${subjectFsId}`);
         await this.traverseParents(subjectFsId, 1, 0);
+      }
+      // If subject also had no FS match but has customer-provided parents, still search outward
+      if (!subjectFsId && !fatherFsId && !motherFsId) {
+        console.log(`[Engine] No FS matches at all — attempting direct parent searches from subject`);
+        await this.searchParentsDirectly(1, 0);
       }
 
       // Complete
@@ -621,6 +634,77 @@ class ResearchEngine {
   }
 
   // From a verified person, get their parents from FS and traverse each branch
+  // Search for parents directly when we have no FS person ID for the child.
+  // Uses known anchors (grandparent names from notes) and child's surname/birthplace
+  // to find grandparents via FamilySearch search, then continues traversal.
+  async searchParentsDirectly(fromAsc, fromGen) {
+    if (fromGen >= this.generations) return;
+
+    const childRecord = this.db.getAncestorByAscNumber(this.jobId, fromAsc);
+    if (!childRecord) return;
+
+    const childBirth = normalizeDate(childRecord.birth_date);
+    const estimatedParentBirth = childBirth?.year ? String(childBirth.year - 28) : null;
+    const childSurname = parseNameParts(childRecord.name).surname;
+    const childBirthPlace = childRecord.birth_place || '';
+
+    const fatherAsc = fromAsc * 2;
+    const motherAsc = fromAsc * 2 + 1;
+    const nextGen = fromGen + 1;
+
+    // Search for father — use anchor data if available, else child's surname
+    const fatherAnchor = this.knownAnchors[fatherAsc];
+    if ((fatherAnchor?.givenName || childSurname) && nextGen <= this.generations) {
+      const fatherSearch = {
+        givenName: fatherAnchor?.givenName || '',
+        surname: fatherAnchor?.surname || childSurname,
+        birthDate: fatherAnchor?.birthDate || estimatedParentBirth || '',
+        birthPlace: fatherAnchor?.birthPlace || childBirthPlace,
+        deathDate: fatherAnchor?.deathDate || '',
+      };
+      console.log(`[DirectSearch] Searching for father (asc#${fatherAsc}): ${fatherSearch.givenName} ${fatherSearch.surname}, b.${fatherSearch.birthDate}`);
+
+      const existingFather = this.db.getAncestorByAscNumber(this.jobId, fatherAsc);
+      if (!existingFather) {
+        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, fatherSearch);
+        if (fResult.verified && fResult.personId) {
+          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+        } else if (fResult.verified) {
+          // Found but no FS ID — try searching for THEIR parents too
+          await this.searchParentsDirectly(fatherAsc, nextGen);
+        }
+      } else if (existingFather.fs_person_id) {
+        // Already have an FS ID from pre-population — traverse from that
+        await this.traverseParents(existingFather.fs_person_id, fatherAsc, nextGen);
+      }
+    }
+
+    // Search for mother — only if we have anchor data (can't guess mother's maiden name)
+    const motherAnchor = this.knownAnchors[motherAsc];
+    if (motherAnchor?.givenName && nextGen <= this.generations) {
+      const motherSearch = {
+        givenName: motherAnchor.givenName,
+        surname: motherAnchor.surname || '',
+        birthDate: motherAnchor?.birthDate || estimatedParentBirth || '',
+        birthPlace: motherAnchor?.birthPlace || childBirthPlace,
+        deathDate: motherAnchor?.deathDate || '',
+      };
+      console.log(`[DirectSearch] Searching for mother (asc#${motherAsc}): ${motherSearch.givenName} ${motherSearch.surname}, b.${motherSearch.birthDate}`);
+
+      const existingMother = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+      if (!existingMother) {
+        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, motherSearch);
+        if (mResult.verified && mResult.personId) {
+          await this.traverseParents(mResult.personId, motherAsc, nextGen);
+        } else if (mResult.verified) {
+          await this.searchParentsDirectly(motherAsc, nextGen);
+        }
+      } else if (existingMother.fs_person_id) {
+        await this.traverseParents(existingMother.fs_person_id, motherAsc, nextGen);
+      }
+    }
+  }
+
   async traverseParents(personId, fromAsc, fromGen) {
     console.log(`[Traverse] traverseParents(${personId}, asc#${fromAsc}, gen${fromGen}) — maxGen=${this.generations}`);
     if (fromGen >= this.generations) {
