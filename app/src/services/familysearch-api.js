@@ -3,7 +3,10 @@ const oauth = require('./familysearch-oauth');
 
 const API_BASE = config.FS_API_BASE;
 
-async function apiRequest(path, options = {}) {
+// Rate limiting — enforce minimum 300ms between API calls
+let lastRequestTime = 0;
+
+async function apiRequest(path, options = {}, retryCount = 0) {
   const tokenData = oauth.getStoredToken();
   if (!tokenData) throw new Error('FamilySearch not connected — please authenticate first');
 
@@ -28,7 +31,14 @@ async function apiRequest(path, options = {}) {
   }
 
   if (response.status === 429) {
-    throw new Error('FamilySearch rate limit exceeded — please wait and try again');
+    if (retryCount < 3) {
+      const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+      const delay = retryAfter * 1000 * Math.pow(2, retryCount);
+      console.log(`Rate limited, retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
+      await new Promise(r => setTimeout(r, delay));
+      return apiRequest(path, options, retryCount + 1);
+    }
+    throw new Error('FamilySearch rate limit exceeded after 3 retries');
   }
 
   if (!response.ok) {
@@ -39,8 +49,23 @@ async function apiRequest(path, options = {}) {
   return response.json();
 }
 
+// Rate-limited wrapper — all public functions should use this
+async function rateLimitedApiRequest(path, options = {}) {
+  const elapsed = Date.now() - lastRequestTime;
+  if (elapsed < 300) {
+    await new Promise(r => setTimeout(r, 300 - elapsed));
+  }
+  lastRequestTime = Date.now();
+  return apiRequest(path, options);
+}
+
 // Search for a person in the FamilySearch tree
-async function searchPerson({ givenName, surname, birthDate, birthPlace, deathDate, deathPlace }) {
+// Returns full GEDCOM X person data for scoring, not just display fields
+async function searchPerson({
+  givenName, surname, birthDate, birthPlace, deathDate, deathPlace,
+  fatherGivenName, fatherSurname, motherGivenName, motherSurname,
+  count
+}) {
   const params = new URLSearchParams();
   if (givenName) params.set('q.givenName', givenName);
   if (surname) params.set('q.surname', surname);
@@ -48,8 +73,13 @@ async function searchPerson({ givenName, surname, birthDate, birthPlace, deathDa
   if (birthPlace) params.set('q.birthLikePlace', birthPlace);
   if (deathDate) params.set('q.deathLikeDate', deathDate);
   if (deathPlace) params.set('q.deathLikePlace', deathPlace);
+  if (fatherGivenName) params.set('q.fatherGivenName', fatherGivenName);
+  if (fatherSurname) params.set('q.fatherSurname', fatherSurname);
+  if (motherGivenName) params.set('q.motherGivenName', motherGivenName);
+  if (motherSurname) params.set('q.motherSurname', motherSurname);
+  if (count) params.set('count', count);
 
-  const data = await apiRequest(`/platform/tree/search?${params.toString()}`);
+  const data = await rateLimitedApiRequest(`/platform/tree/search?${params.toString()}`);
 
   if (!data.entries) return [];
 
@@ -58,6 +88,12 @@ async function searchPerson({ givenName, surname, birthDate, birthPlace, deathDa
     if (!person) return null;
 
     const display = person.display || {};
+
+    // Extract parent names from the GEDCOM X response if available
+    const parents = entry.content?.gedcomx?.relationships?.filter(r =>
+      r.type === 'http://gedcomx.org/ParentChild'
+    ) || [];
+
     return {
       id: person.id,
       name: display.name || 'Unknown',
@@ -67,13 +103,87 @@ async function searchPerson({ givenName, surname, birthDate, birthPlace, deathDa
       deathDate: display.deathDate || '',
       deathPlace: display.deathPlace || '',
       score: entry.score,
+      // Full data for scoring
+      facts: person.facts || [],
+      names: person.names || [],
+      display,
+      raw: person,
     };
   }).filter(Boolean);
 }
 
-// Get ancestry (pedigree) for a person
+// Get parents for a person — replaces getAncestry() for tree traversal
+async function getParents(personId) {
+  try {
+    const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}/parents`);
+
+    // Build a person map from the response
+    const personMap = {};
+    if (data.persons) {
+      for (const p of data.persons) {
+        personMap[p.id] = p;
+      }
+    }
+
+    let father = null;
+    let mother = null;
+
+    // Parse childAndParentsRelationships
+    const relationships = data.childAndParentsRelationships || [];
+    if (relationships.length > 0) {
+      // Use the first relationship (biological parents)
+      const rel = relationships[0];
+
+      if (rel.father?.resourceId) {
+        const fatherPerson = personMap[rel.father.resourceId];
+        if (fatherPerson) {
+          const d = fatherPerson.display || {};
+          father = {
+            id: fatherPerson.id,
+            name: d.name || 'Unknown',
+            gender: d.gender || 'Male',
+            birthDate: d.birthDate || '',
+            birthPlace: d.birthPlace || '',
+            deathDate: d.deathDate || '',
+            deathPlace: d.deathPlace || '',
+            facts: fatherPerson.facts || [],
+            raw: fatherPerson,
+          };
+        }
+      }
+
+      if (rel.mother?.resourceId) {
+        const motherPerson = personMap[rel.mother.resourceId];
+        if (motherPerson) {
+          const d = motherPerson.display || {};
+          mother = {
+            id: motherPerson.id,
+            name: d.name || 'Unknown',
+            gender: d.gender || 'Female',
+            birthDate: d.birthDate || '',
+            birthPlace: d.birthPlace || '',
+            deathDate: d.deathDate || '',
+            deathPlace: d.deathPlace || '',
+            facts: motherPerson.facts || [],
+            raw: motherPerson,
+          };
+        }
+      }
+    }
+
+    return { father, mother };
+  } catch (err) {
+    // Parents endpoint may 404 if no parents are recorded
+    if (err.message.includes('404')) {
+      return { father: null, mother: null };
+    }
+    throw err;
+  }
+}
+
+// Get ancestry (pedigree) for a person — DEPRECATED, kept for backward compatibility
 async function getAncestry(personId, generations = 4) {
-  const data = await apiRequest(`/platform/tree/ancestry?person=${personId}&generations=${generations}`);
+  const data = await rateLimitedApiRequest(`/platform/tree/ancestry?person=${personId}&generations=${generations}`);
 
   if (!data.persons) return [];
 
@@ -97,14 +207,14 @@ async function getAncestry(personId, generations = 4) {
 
 // Get detailed person information
 async function getPersonDetails(personId) {
-  const data = await apiRequest(`/platform/tree/persons/${personId}`);
+  const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}`);
   return data.persons?.[0] || null;
 }
 
 // Get sources for a person
 async function getPersonSources(personId) {
   try {
-    const data = await apiRequest(`/platform/tree/persons/${personId}/sources`);
+    const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}/sources`);
     if (!data.persons?.[0]?.sources) return [];
 
     return data.persons[0].sources.map(source => ({
@@ -117,78 +227,11 @@ async function getPersonSources(personId) {
   }
 }
 
-// Run full research pipeline
-async function runResearch(inputData, generations, db, jobId) {
-  try {
-    db.updateResearchJob(jobId, { status: 'running' });
-
-    // Step 1: Search for the starting person
-    const searchResults = await searchPerson({
-      givenName: inputData.given_name,
-      surname: inputData.surname,
-      birthDate: inputData.birth_date,
-      birthPlace: inputData.birth_place,
-      deathDate: inputData.death_date,
-      deathPlace: inputData.death_place,
-    });
-
-    if (searchResults.length === 0) {
-      db.updateResearchJob(jobId, {
-        status: 'failed',
-        error_message: 'No matching person found in FamilySearch. Try adjusting the search details.',
-      });
-      return;
-    }
-
-    // Use best match
-    const startPerson = searchResults[0];
-    db.updateResearchJob(jobId, { person_id: startPerson.id });
-
-    // Step 2: Get ancestry tree
-    const ancestors = await getAncestry(startPerson.id, generations);
-
-    // Step 3: For each ancestor, get sources (with rate limiting)
-    db.deleteAncestors(jobId);
-    for (const ancestor of ancestors) {
-      // Brief delay to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      let sources = [];
-      try {
-        sources = await getPersonSources(ancestor.fs_person_id);
-      } catch {
-        // Sources are optional, don't fail the whole job
-      }
-
-      db.addAncestor({
-        research_job_id: jobId,
-        fs_person_id: ancestor.fs_person_id,
-        name: ancestor.name,
-        gender: ancestor.gender,
-        birth_date: ancestor.birthDate,
-        birth_place: ancestor.birthPlace,
-        death_date: ancestor.deathDate,
-        death_place: ancestor.deathPlace,
-        ascendancy_number: ancestor.ascendancy_number,
-        generation: ancestor.generation,
-        confidence: ancestor.fs_person_id ? 'high' : 'low',
-        sources,
-        raw_data: ancestor.raw_data,
-      });
-    }
-
-    // Step 4: Mark complete
-    db.updateResearchJob(jobId, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      results: { total_ancestors: ancestors.length, search_match: startPerson },
-    });
-  } catch (err) {
-    db.updateResearchJob(jobId, {
-      status: 'failed',
-      error_message: err.message,
-    });
-  }
-}
-
-module.exports = { searchPerson, getAncestry, getPersonDetails, getPersonSources, runResearch };
+module.exports = {
+  searchPerson,
+  getParents,
+  getAncestry,
+  getPersonDetails,
+  getPersonSources,
+  rateLimitedApiRequest,
+};

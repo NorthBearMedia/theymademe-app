@@ -1,5 +1,7 @@
 function formatGedcomName(name) {
   if (!name) return '//';
+  // Strip "(not found)" suffix from rejected ancestors
+  name = name.replace(/\s*\(not found\)\s*$/, '');
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return `${parts[0]} //`;
   const surname = parts.pop();
@@ -13,6 +15,9 @@ function formatGedcomDate(dateStr) {
 }
 
 function generateGedcom(job, ancestors) {
+  // Filter: only include ancestors with confidence_score >= 50 (Possible or better)
+  const verifiedAncestors = ancestors.filter(a => (a.confidence_score || 0) >= 50);
+
   const lines = [];
   const now = new Date();
   const dateStr = `${now.getDate()} ${['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][now.getMonth()]} ${now.getFullYear()}`;
@@ -20,7 +25,7 @@ function generateGedcom(job, ancestors) {
   // HEADER
   lines.push('0 HEAD');
   lines.push('1 SOUR TheyMadeMe');
-  lines.push('2 VERS 1.0');
+  lines.push('2 VERS 2.0');
   lines.push('2 NAME They Made Me - AI Family Tree Builder');
   lines.push('1 DEST ANSTFILE');
   lines.push(`1 DATE ${dateStr}`);
@@ -33,9 +38,9 @@ function generateGedcom(job, ancestors) {
   lines.push('0 @SUBM1@ SUBM');
   lines.push('1 NAME They Made Me');
 
-  // Build a map of ancestors by ascendancy number
+  // Build a map of verified ancestors by ascendancy number
   const byNum = new Map();
-  for (const a of ancestors) {
+  for (const a of verifiedAncestors) {
     if (a.ascendancy_number) byNum.set(a.ascendancy_number, a);
   }
 
@@ -43,7 +48,7 @@ function generateGedcom(job, ancestors) {
   const families = new Map();
 
   // INDIVIDUAL records
-  for (const a of ancestors) {
+  for (const a of verifiedAncestors) {
     const num = a.ascendancy_number;
     if (!num) continue;
 
@@ -65,6 +70,12 @@ function generateGedcom(job, ancestors) {
       if (a.death_place) lines.push(`2 PLAC ${a.death_place}`);
     }
 
+    // Confidence note
+    const level = a.confidence_level || 'Unknown';
+    const score = a.confidence_score || 0;
+    const sourceCount = (a.sources || []).length;
+    lines.push(`1 NOTE Confidence: ${score}% (${level}) — ${sourceCount} source(s), verified via GPS methodology`);
+
     // Source references
     if (a.sources && a.sources.length > 0) {
       for (let i = 0; i < a.sources.length; i++) {
@@ -74,7 +85,6 @@ function generateGedcom(job, ancestors) {
 
     // Family links — person N is child of family where father=2N, mother=2N+1
     if (num > 1) {
-      // This person is a child — determine parent family
       const isEven = num % 2 === 0;
       const spouseNum = isEven ? num + 1 : num - 1;
       const childNum = Math.floor(num / 2);
@@ -91,7 +101,6 @@ function generateGedcom(job, ancestors) {
     }
 
     if (num >= 1) {
-      // This person is a child of their parent family
       const parentFatherNum = num * 2;
       const parentMotherNum = num * 2 + 1;
       if (byNum.has(parentFatherNum) || byNum.has(parentMotherNum)) {
@@ -112,7 +121,7 @@ function generateGedcom(job, ancestors) {
   }
 
   // SOURCE records
-  for (const a of ancestors) {
+  for (const a of verifiedAncestors) {
     if (!a.sources || !a.ascendancy_number) continue;
     for (let i = 0; i < a.sources.length; i++) {
       const src = a.sources[i];
@@ -120,6 +129,7 @@ function generateGedcom(job, ancestors) {
       if (src.title) lines.push(`1 TITL ${src.title}`);
       if (src.citation) lines.push(`1 TEXT ${src.citation}`);
       if (src.url) lines.push(`1 _URL ${src.url}`);
+      if (src.source_type) lines.push(`1 NOTE Source type: ${src.source_type}, Evidence weight: ${src.weight || 0}`);
     }
   }
 

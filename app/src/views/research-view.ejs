@@ -20,9 +20,23 @@
     <% } %>
 
     <% if (job.status === 'running') { %>
-        <div style="background:#d6eaf8;color:#1a5276;padding:12px 16px;border-radius:8px;margin-top:12px;font-size:14px;">
-            Research is running... Refresh this page to check for updates.
+        <div style="margin-top:12px;">
+            <div style="background:#e8e8e8;border-radius:8px;height:24px;overflow:hidden;margin-bottom:8px;">
+                <% var pct = job.progress_total > 0 ? Math.round((job.progress_current || 0) / job.progress_total * 100) : 0; %>
+                <div style="background:var(--sage);height:100%;width:<%= pct %>%;transition:width 0.5s ease;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                    <% if (pct > 15) { %>
+                        <span style="color:white;font-size:11px;font-weight:700;"><%= pct %>%</span>
+                    <% } %>
+                </div>
+            </div>
+            <div style="font-size:13px;color:var(--forest);">
+                <%= job.progress_message || 'Starting research...' %>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                <%= job.progress_current || 0 %> of <%= job.progress_total || '?' %> persons processed
+            </div>
         </div>
+        <script>setTimeout(function() { location.reload(); }, 5000);</script>
     <% } %>
 
     <% if (job.input_data) { %>
@@ -46,8 +60,30 @@
 </div>
 
 <% if (ancestors.length > 0) { %>
+<%
+  var verified = ancestors.filter(function(a) { return a.confidence_score >= 90; }).length;
+  var probable = ancestors.filter(function(a) { return a.confidence_score >= 75 && a.confidence_score < 90; }).length;
+  var possible = ancestors.filter(function(a) { return a.confidence_score >= 50 && a.confidence_score < 75; }).length;
+  var rejected = ancestors.filter(function(a) { return a.confidence_score < 50; }).length;
+%>
 <div class="card">
-    <h2>Ancestors Found (<%= ancestors.length %>)</h2>
+    <h2>Ancestors Found (<%= ancestors.filter(function(a) { return a.confidence_score >= 50; }).length %> verified, <%= rejected %> rejected)</h2>
+
+    <div style="display:flex;gap:16px;margin:12px 0 20px;flex-wrap:wrap;">
+        <div style="background:#d4edda;color:#155724;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
+            <%= verified %> Verified
+        </div>
+        <div style="background:#d6eaf8;color:#1a5276;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
+            <%= probable %> Probable
+        </div>
+        <div style="background:#fff3cd;color:#856404;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
+            <%= possible %> Possible
+        </div>
+        <div style="background:#f8d7da;color:#721c24;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
+            <%= rejected %> Rejected
+        </div>
+    </div>
+
     <div class="ancestor-tree">
         <% var currentGen = -1; %>
         <% ancestors.forEach(function(a) { %>
@@ -56,8 +92,16 @@
                     Generation <%= a.generation %><%= a.generation === 0 ? ' (Subject)' : '' %>
                 </div>
             <% } %>
-            <div class="ancestor-row" style="margin-left:<%= Math.min(a.generation * 16, 96) %>px;">
+            <%
+              var isRejected = a.confidence_score < 50;
+              var badgeColor = a.confidence_score >= 90 ? '#155724' : a.confidence_score >= 75 ? '#1a5276' : a.confidence_score >= 50 ? '#856404' : '#721c24';
+              var badgeBg = a.confidence_score >= 90 ? '#d4edda' : a.confidence_score >= 75 ? '#d6eaf8' : a.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
+            %>
+            <div class="ancestor-row" style="margin-left:<%= Math.min(a.generation * 16, 96) %>px;<%= isRejected ? 'opacity:0.5;' : '' %>">
                 <span class="gen">#<%= a.ascendancy_number %></span>
+                <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;margin-right:8px;white-space:nowrap;">
+                    <%= a.confidence_score %>% &mdash; <%= a.confidence_level || 'Unknown' %>
+                </span>
                 <div>
                     <div class="name"><%= a.name %> <span style="font-weight:400;font-size:12px;color:var(--text-muted);">(<%= a.gender %>)</span></div>
                     <div class="details">
@@ -68,9 +112,15 @@
                             &nbsp;|&nbsp; d. <%= a.death_date %><%= a.death_place ? ', ' + a.death_place : '' %>
                         <% } %>
                     </div>
-                    <% if (a.sources && a.sources.length > 0) { %>
-                        <div style="font-size:11px;color:var(--info);margin-top:2px;"><%= a.sources.length %> source(s)</div>
-                    <% } %>
+                    <div style="font-size:11px;margin-top:3px;display:flex;gap:12px;align-items:center;">
+                        <% if (a.sources && a.sources.length > 0) { %>
+                            <span style="color:var(--info);"><%= a.sources.length %> source(s)</span>
+                        <% } %>
+                        <% if (a.evidence_chain && a.evidence_chain.length > 0) { %>
+                            <span style="color:var(--sage);"><%= a.evidence_chain.length %> evidence items</span>
+                        <% } %>
+                        <a href="/admin/research/<%= job.id %>/ancestor/<%= a.id %>" style="color:var(--forest);text-decoration:underline;font-size:11px;">View Evidence</a>
+                    </div>
                 </div>
             </div>
         <% }); %>
