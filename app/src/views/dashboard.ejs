@@ -1,0 +1,82 @@
+<% var flashError = typeof flashError !== 'undefined' ? flashError : null; %>
+<% if (flashError) { %>
+    <div class="flash-error"><%= flashError %></div>
+<% } %>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="num"><%= stats.total %></div>
+        <div class="label">Total Jobs</div>
+    </div>
+    <div class="stat-card">
+        <div class="num"><%= stats.completed %></div>
+        <div class="label">Completed</div>
+    </div>
+    <div class="stat-card">
+        <div class="num"><%= stats.running %></div>
+        <div class="label">Running</div>
+    </div>
+    <div class="stat-card">
+        <div class="num"><%= stats.pending %></div>
+        <div class="label">Pending</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>FamilySearch Connection</h2>
+    <% if (fsConnected) { %>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span class="badge badge-success">Connected</span>
+            <span style="font-size:13px;color:var(--text-muted);"><%= tokenData.hours_remaining %>h remaining</span>
+        </div>
+        <form action="/admin/familysearch/disconnect" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>
+        </form>
+    <% } else { %>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span class="badge badge-danger">Not Connected</span>
+        </div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">Connect to FamilySearch to start running research queries.</p>
+        <a href="/admin/familysearch/connect" class="btn btn-primary btn-sm">Connect to FamilySearch</a>
+    <% } %>
+</div>
+
+<div class="card">
+    <div class="header-row">
+        <h2 style="margin-bottom:0;">Recent Research</h2>
+        <a href="/admin/research/new" class="btn btn-primary btn-sm">+ New Research</a>
+    </div>
+    <% if (recentJobs.length > 0) { %>
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Generations</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% recentJobs.forEach(function(j) { %>
+                    <tr>
+                        <td><strong><%= j.customer_name %></strong></td>
+                        <td><%= j.generations %></td>
+                        <td>
+                            <span class="badge <%= j.status === 'completed' ? 'badge-success' : j.status === 'running' ? 'badge-info' : j.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= j.status %></span>
+                        </td>
+                        <td style="color:var(--text-muted);font-size:13px;"><%= new Date(j.created_at).toLocaleDateString('en-GB') %></td>
+                        <td>
+                            <a href="/admin/research/<%= j.id %>" class="btn btn-secondary btn-sm">View</a>
+                            <% if (j.status === 'completed') { %>
+                                <a href="/admin/export/gedcom/<%= j.id %>" class="btn btn-primary btn-sm">GEDCOM</a>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% }); %>
+            </tbody>
+        </table>
+    <% } else { %>
+        <p style="color:var(--text-muted);font-size:14px;">No research jobs yet. Click "New Research" to get started.</p>
+    <% } %>
+</div>

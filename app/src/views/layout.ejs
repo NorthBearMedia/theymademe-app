@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= typeof pageTitle !== 'undefined' ? pageTitle : 'Admin' %> — They Made Me</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/admin/static/admin.css">
+</head>
+<body>
+    <nav class="admin-nav">
+        <a href="/admin" class="brand">They Made Me — Admin</a>
+        <div class="nav-links">
+            <a href="/admin">Dashboard</a>
+            <a href="/admin/research">Research</a>
+            <a href="/admin/research/new">New Research</a>
+            <a href="/" target="_blank">View Site</a>
+            <form action="/admin/logout" method="POST" style="display:inline;">
+                <button type="submit" class="logout-btn">Logout</button>
+            </form>
+        </div>
+    </nav>
+    <div class="admin-container">
+        <%- content %>
+    </div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<% if (error) { %>
+    <div class="flash-error"><%= error %></div>
+<% } %>
+
+<div class="card">
+    <h2>New Research Job</h2>
+    <p style="color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter the customer and subject details to begin ancestry research.</p>
+
+    <form action="/admin/research/start" method="POST">
+        <h3 style="font-size:15px;color:var(--forest);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);">Customer Details</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Customer Name *</label>
+                <input type="text" name="customer_name" required placeholder="e.g. John Smith">
+            </div>
+            <div class="form-group">
+                <label>Customer Email</label>
+                <input type="email" name="customer_email" placeholder="e.g. john@example.com">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Generations to Research</label>
+            <select name="generations">
+                <option value="4">4 Generations</option>
+                <option value="5">5 Generations</option>
+                <option value="6" selected>6 Generations</option>
+            </select>
+        </div>
+
+        <h3 style="font-size:15px;color:var(--forest);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-top:28px;">Subject Details (Person to Research)</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Given Name(s) *</label>
+                <input type="text" name="given_name" required placeholder="e.g. James William">
+            </div>
+            <div class="form-group">
+                <label>Surname *</label>
+                <input type="text" name="surname" required placeholder="e.g. Hunt">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Birth Date (approx)</label>
+                <input type="text" name="birth_date" placeholder="e.g. 1920 or 15 March 1920">
+            </div>
+            <div class="form-group">
+                <label>Birth Place</label>
+                <input type="text" name="birth_place" placeholder="e.g. London, England">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Death Date (approx)</label>
+                <input type="text" name="death_date" placeholder="e.g. 1985">
+            </div>
+            <div class="form-group">
+                <label>Death Place</label>
+                <input type="text" name="death_place" placeholder="e.g. Bristol, England">
+            </div>
+        </div>
+
+        <h3 style="font-size:15px;color:var(--forest);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-top:28px;">Known Family (Optional)</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Father's Name</label>
+                <input type="text" name="father_name" placeholder="e.g. Robert Hunt">
+            </div>
+            <div class="form-group">
+                <label>Mother's Maiden Name</label>
+                <input type="text" name="mother_name" placeholder="e.g. Mary Jones">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Additional Notes</label>
+            <textarea name="notes" placeholder="Any other details - known grandparents, locations, occupations, etc."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top:8px;">Start Research</button>
+    </form>
+</div>

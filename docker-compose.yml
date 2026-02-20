@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./frontend:/var/www/frontend:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-var:/var/www/certbot:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    expose:
+      - "3000"
+    volumes:
+      - app-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - FS_CLIENT_ID=${FS_CLIENT_ID}
+      - FS_REDIRECT_URI=${FS_REDIRECT_URI}
+      - FS_AUTH_URL=${FS_AUTH_URL}
+      - FS_TOKEN_URL=${FS_TOKEN_URL}
+      - FS_API_BASE=${FS_API_BASE}
+      - SITE_URL=${SITE_URL}
+      - DATA_DIR=/app/data
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;"
+    depends_on:
+      - nginx
+    restart: unless-stopped
+    networks:
+      - webnet
+
+volumes:
+  certbot-etc:
+  certbot-var:
+  app-data:
+
+networks:
+  webnet:

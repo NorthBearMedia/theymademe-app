@@ -1,0 +1,42 @@
+<div class="card">
+    <div class="header-row">
+        <h2 style="margin-bottom:0;">All Research Jobs</h2>
+        <a href="/admin/research/new" class="btn btn-primary btn-sm">+ New Research</a>
+    </div>
+
+    <% if (jobs.length > 0) { %>
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Email</th>
+                    <th>Generations</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% jobs.forEach(function(j) { %>
+                    <tr>
+                        <td><strong><%= j.customer_name %></strong></td>
+                        <td style="font-size:13px;color:var(--text-muted);"><%= j.customer_email || '-' %></td>
+                        <td><%= j.generations %></td>
+                        <td>
+                            <span class="badge <%= j.status === 'completed' ? 'badge-success' : j.status === 'running' ? 'badge-info' : j.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= j.status %></span>
+                        </td>
+                        <td style="color:var(--text-muted);font-size:13px;"><%= new Date(j.created_at).toLocaleDateString('en-GB') %></td>
+                        <td>
+                            <a href="/admin/research/<%= j.id %>" class="btn btn-secondary btn-sm">View</a>
+                            <% if (j.status === 'completed') { %>
+                                <a href="/admin/export/gedcom/<%= j.id %>" class="btn btn-primary btn-sm">GEDCOM</a>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% }); %>
+            </tbody>
+        </table>
+    <% } else { %>
+        <p style="color:var(--text-muted);font-size:14px;">No research jobs yet.</p>
+    <% } %>
+</div>

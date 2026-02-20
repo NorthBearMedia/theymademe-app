@@ -1,0 +1,22 @@
+require('dotenv').config();
+
+module.exports = {
+  PORT: process.env.PORT || 3000,
+  NODE_ENV: process.env.NODE_ENV || 'development',
+  SITE_URL: process.env.SITE_URL || 'https://theymademe.co.uk',
+
+  // Admin auth
+  ADMIN_USERNAME: process.env.ADMIN_USERNAME || 'admin',
+  ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH,
+  SESSION_SECRET: process.env.SESSION_SECRET || 'change-me-in-production',
+
+  // FamilySearch OAuth
+  FS_CLIENT_ID: process.env.FS_CLIENT_ID || 'b00CM36K81ADFVOS60K8',
+  FS_REDIRECT_URI: process.env.FS_REDIRECT_URI || 'https://theymademe.co.uk/admin/familysearch/callback',
+  FS_AUTH_URL: process.env.FS_AUTH_URL || 'https://ident.familysearch.org/cis-web/oauth2/v3/authorization',
+  FS_TOKEN_URL: process.env.FS_TOKEN_URL || 'https://ident.familysearch.org/cis-web/oauth2/v3/token',
+  FS_API_BASE: process.env.FS_API_BASE || 'https://api.familysearch.org',
+
+  // Paths
+  DATA_DIR: process.env.DATA_DIR || '/app/data',
+};

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — They Made Me Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #faf6f0;
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .login-card {
+            background: white; border-radius: 16px; padding: 48px 40px;
+            width: 100%; max-width: 400px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            border: 1px solid #e0d8cc;
+        }
+        .login-card h1 {
+            font-size: 24px; color: #1a3a2a; margin-bottom: 8px; font-weight: 700;
+        }
+        .login-card p { color: #6b6b6b; font-size: 14px; margin-bottom: 28px; }
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: #2c2c2c; margin-bottom: 6px; }
+        .form-group input {
+            width: 100%; padding: 12px 14px; border: 1px solid #e0d8cc; border-radius: 8px;
+            font-size: 14px; font-family: inherit;
+        }
+        .form-group input:focus { outline: none; border-color: #6b8f71; box-shadow: 0 0 0 3px rgba(107,143,113,0.15); }
+        .btn {
+            width: 100%; padding: 14px; background: #1a3a2a; color: white;
+            border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+            cursor: pointer; font-family: inherit; transition: background 0.2s;
+        }
+        .btn:hover { background: #2d5a3f; }
+        .error { background: #fadbd8; color: #c0392b; padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>They Made Me</h1>
+        <p>Admin Panel — Sign in to continue</p>
+        <% if (error) { %>
+            <div class="error"><%= error %></div>
+        <% } %>
+        <form action="/admin/login" method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>

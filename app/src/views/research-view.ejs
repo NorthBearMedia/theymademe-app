@@ -1,0 +1,79 @@
+<div class="card">
+    <div class="header-row">
+        <div>
+            <h2 style="margin-bottom:4px;"><%= job.customer_name %></h2>
+            <span style="font-size:13px;color:var(--text-muted);"><%= job.generations %> generations</span>
+            <% if (job.customer_email) { %>
+                <span style="font-size:13px;color:var(--text-muted);margin-left:12px;"><%= job.customer_email %></span>
+            <% } %>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span class="badge <%= job.status === 'completed' ? 'badge-success' : job.status === 'running' ? 'badge-info' : job.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= job.status %></span>
+            <% if (job.status === 'completed') { %>
+                <a href="/admin/export/gedcom/<%= job.id %>" class="btn btn-primary btn-sm">Download GEDCOM</a>
+            <% } %>
+        </div>
+    </div>
+
+    <% if (job.status === 'failed' && job.error_message) { %>
+        <div class="flash-error" style="margin-top:12px;"><%= job.error_message %></div>
+    <% } %>
+
+    <% if (job.status === 'running') { %>
+        <div style="background:#d6eaf8;color:#1a5276;padding:12px 16px;border-radius:8px;margin-top:12px;font-size:14px;">
+            Research is running... Refresh this page to check for updates.
+        </div>
+    <% } %>
+
+    <% if (job.input_data) { %>
+        <div style="margin-top:16px;padding:16px;background:var(--cream);border-radius:8px;">
+            <h3 style="font-size:14px;color:var(--forest);margin-bottom:10px;">Search Details</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+                <% if (job.input_data.given_name) { %><div><strong>Given Name:</strong> <%= job.input_data.given_name %></div><% } %>
+                <% if (job.input_data.surname) { %><div><strong>Surname:</strong> <%= job.input_data.surname %></div><% } %>
+                <% if (job.input_data.birth_date) { %><div><strong>Birth:</strong> <%= job.input_data.birth_date %></div><% } %>
+                <% if (job.input_data.birth_place) { %><div><strong>Birth Place:</strong> <%= job.input_data.birth_place %></div><% } %>
+                <% if (job.input_data.death_date) { %><div><strong>Death:</strong> <%= job.input_data.death_date %></div><% } %>
+                <% if (job.input_data.death_place) { %><div><strong>Death Place:</strong> <%= job.input_data.death_place %></div><% } %>
+                <% if (job.input_data.father_name) { %><div><strong>Father:</strong> <%= job.input_data.father_name %></div><% } %>
+                <% if (job.input_data.mother_name) { %><div><strong>Mother:</strong> <%= job.input_data.mother_name %></div><% } %>
+            </div>
+            <% if (job.input_data.notes) { %>
+                <div style="margin-top:8px;font-size:13px;"><strong>Notes:</strong> <%= job.input_data.notes %></div>
+            <% } %>
+        </div>
+    <% } %>
+</div>
+
+<% if (ancestors.length > 0) { %>
+<div class="card">
+    <h2>Ancestors Found (<%= ancestors.length %>)</h2>
+    <div class="ancestor-tree">
+        <% var currentGen = -1; %>
+        <% ancestors.forEach(function(a) { %>
+            <% if (a.generation !== currentGen) { currentGen = a.generation; %>
+                <div style="font-size:12px;font-weight:700;color:var(--sage);margin-top:18px;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">
+                    Generation <%= a.generation %><%= a.generation === 0 ? ' (Subject)' : '' %>
+                </div>
+            <% } %>
+            <div class="ancestor-row" style="margin-left:<%= Math.min(a.generation * 16, 96) %>px;">
+                <span class="gen">#<%= a.ascendancy_number %></span>
+                <div>
+                    <div class="name"><%= a.name %> <span style="font-weight:400;font-size:12px;color:var(--text-muted);">(<%= a.gender %>)</span></div>
+                    <div class="details">
+                        <% if (a.birth_date || a.birth_place) { %>
+                            b. <%= a.birth_date %><%= a.birth_place ? ', ' + a.birth_place : '' %>
+                        <% } %>
+                        <% if (a.death_date || a.death_place) { %>
+                            &nbsp;|&nbsp; d. <%= a.death_date %><%= a.death_place ? ', ' + a.death_place : '' %>
+                        <% } %>
+                    </div>
+                    <% if (a.sources && a.sources.length > 0) { %>
+                        <div style="font-size:11px;color:var(--info);margin-top:2px;"><%= a.sources.length %> source(s)</div>
+                    <% } %>
+                </div>
+            </div>
+        <% }); %>
+    </div>
+</div>
+<% } %>
