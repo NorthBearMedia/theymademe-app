@@ -21,13 +21,13 @@ services:
     restart: "no"
 
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./frontend:/var/www/frontend:ro
       - certbot-etc:/etc/letsencrypt:ro
       - certbot-var:/var/www/certbot:ro
     depends_on:
