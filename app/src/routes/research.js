@@ -47,7 +47,7 @@ router.post('/start', requireAuth, async (req, res) => {
     input_data: inputData,
   });
 
-  // Pre-populate ancestors from customer data so they appear on the fan chart immediately
+  // Pre-populate ancestors from customer data — 100% confidence (customer is always right)
   // Asc#1 = Subject
   db.addAncestor({
     research_job_id: jobId,
@@ -63,12 +63,12 @@ router.post('/start', requireAuth, async (req, res) => {
     confidence: 'customer_data',
     sources: [],
     raw_data: {},
-    confidence_score: 70,
+    confidence_score: 100,
     confidence_level: 'Customer Data',
     evidence_chain: [],
     search_log: [],
     conflicts: [],
-    verification_notes: 'Customer-provided data — awaiting verification',
+    verification_notes: 'Customer-provided data',
   });
 
   // Asc#2 = Father (if provided)
@@ -87,12 +87,12 @@ router.post('/start', requireAuth, async (req, res) => {
       confidence: 'customer_data',
       sources: [],
       raw_data: {},
-      confidence_score: 60,
+      confidence_score: 100,
       confidence_level: 'Customer Data',
       evidence_chain: [],
       search_log: [],
       conflicts: [],
-      verification_notes: 'Customer-provided data — awaiting verification',
+      verification_notes: 'Customer-provided data',
     });
   }
 
@@ -112,12 +112,12 @@ router.post('/start', requireAuth, async (req, res) => {
       confidence: 'customer_data',
       sources: [],
       raw_data: {},
-      confidence_score: 60,
+      confidence_score: 100,
       confidence_level: 'Customer Data',
       evidence_chain: [],
       search_log: [],
       conflicts: [],
-      verification_notes: 'Customer-provided data — awaiting verification',
+      verification_notes: 'Customer-provided data',
     });
   }
 

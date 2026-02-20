@@ -261,11 +261,14 @@ class ResearchEngine {
         subjectInfo.motherSurname = mp.surname;
       }
 
-      // Try to verify the subject in FS
-      const subjectResult = await this.verifyAndUpdate(1, 0, subjectInfo);
+      // For customer-provided positions (asc#1/2/3): search FS to find FS person ID
+      // for tree traversal. Enrich the record but NEVER lower confidence — customer = 100%.
 
-      // Whether or not subject was found in FS, proceed to verify parents
+      // Subject (asc#1)
+      const subjectFsId = await this.enrichCustomerAncestor(1, 0, subjectInfo);
+
       // Father (asc#2)
+      let fatherFsId = null;
       if (this.knownAnchors[2]) {
         const fatherInfo = {
           givenName: this.knownAnchors[2].givenName || '',
@@ -273,24 +276,15 @@ class ResearchEngine {
           birthDate: this.knownAnchors[2].birthDate || '',
           birthPlace: subjectInfo.birthPlace,
         };
-
-        // Estimate father birth year from subject
         if (!fatherInfo.birthDate) {
           const subjectBirth = normalizeDate(subjectInfo.birthDate);
           if (subjectBirth?.year) fatherInfo.birthDate = String(subjectBirth.year - 28);
         }
-
-        const fatherResult = await this.verifyAndUpdate(2, 1, fatherInfo);
-        console.log(`[Engine] Father result: verified=${fatherResult.verified}, personId=${fatherResult.personId}, confidence=${fatherResult.confidence}`);
-
-        // Traverse father's parents if verified
-        if (fatherResult.verified && fatherResult.personId) {
-          console.log(`[Engine] Traversing father's parents from ${fatherResult.personId}`);
-          await this.traverseParents(fatherResult.personId, 2, 1);
-        }
+        fatherFsId = await this.enrichCustomerAncestor(2, 1, fatherInfo);
       }
 
       // Mother (asc#3)
+      let motherFsId = null;
       if (this.knownAnchors[3]) {
         const motherInfo = {
           givenName: this.knownAnchors[3].givenName || '',
@@ -298,26 +292,26 @@ class ResearchEngine {
           birthDate: this.knownAnchors[3].birthDate || '',
           birthPlace: subjectInfo.birthPlace,
         };
-
         if (!motherInfo.birthDate) {
           const subjectBirth = normalizeDate(subjectInfo.birthDate);
           if (subjectBirth?.year) motherInfo.birthDate = String(subjectBirth.year - 28);
         }
-
-        const motherResult = await this.verifyAndUpdate(3, 1, motherInfo);
-        console.log(`[Engine] Mother result: verified=${motherResult.verified}, personId=${motherResult.personId}, confidence=${motherResult.confidence}`);
-
-        if (motherResult.verified && motherResult.personId) {
-          console.log(`[Engine] Traversing mother's parents from ${motherResult.personId}`);
-          await this.traverseParents(motherResult.personId, 3, 1);
-        }
+        motherFsId = await this.enrichCustomerAncestor(3, 1, motherInfo);
       }
 
-      // If subject was found in FS but parents weren't provided by customer,
-      // still try to find parents through FS tree links
-      if (subjectResult.verified && subjectResult.personId) {
-        console.log(`[Engine] Traversing subject's parents from ${subjectResult.personId}`);
-        await this.traverseParents(subjectResult.personId, 1, 0);
+      // Traverse outward from matched FS persons to find grandparents and beyond
+      if (fatherFsId) {
+        console.log(`[Engine] Traversing father's parents from ${fatherFsId}`);
+        await this.traverseParents(fatherFsId, 2, 1);
+      }
+      if (motherFsId) {
+        console.log(`[Engine] Traversing mother's parents from ${motherFsId}`);
+        await this.traverseParents(motherFsId, 3, 1);
+      }
+      // Also traverse subject's FS parents (may discover parents not provided by customer)
+      if (subjectFsId) {
+        console.log(`[Engine] Traversing subject's FS parents from ${subjectFsId}`);
+        await this.traverseParents(subjectFsId, 1, 0);
       }
 
       // Complete
@@ -373,7 +367,97 @@ class ResearchEngine {
     }
   }
 
-  // Verify a person and update the pre-populated record (or insert new)
+  // For customer-provided positions: search FS to find the FS person ID,
+  // enrich the pre-populated record with FS data, but keep confidence at 100%.
+  // Returns the FS person ID if found (for tree traversal), or null.
+  async enrichCustomerAncestor(ascNumber, generation, knownInfo) {
+    this.processedCount++;
+    const name = knownInfo.givenName
+      ? `${knownInfo.givenName} ${knownInfo.surname || ''}`.trim()
+      : `Ancestor #${ascNumber}`;
+    this.db.updateJobProgress(
+      this.jobId,
+      `Looking up ${name} in FamilySearch (generation ${generation})`,
+      this.processedCount,
+      Math.pow(2, this.generations + 1) - 1
+    );
+
+    // Run the multi-pass search to find candidates
+    const searchLog = [];
+    let allCandidates = [];
+
+    if (knownInfo.givenName || knownInfo.surname) {
+      allCandidates = await this.multiPassSearch(knownInfo, ascNumber, searchLog);
+    }
+
+    if (allCandidates.length === 0) {
+      console.log(`[Engine] asc#${ascNumber}: no FS candidates found — keeping customer data at 100%`);
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
+        verification_notes: 'Customer-provided data — no matching person found in FamilySearch',
+        search_log: searchLog,
+      });
+      return null;
+    }
+
+    // Score candidates
+    const expectedGender = this.getExpectedGender(ascNumber);
+    const scored = allCandidates.map(c => ({
+      ...c,
+      computedScore: this.evaluateCandidate(c, knownInfo, expectedGender),
+    }));
+    scored.sort((a, b) => b.computedScore - a.computedScore);
+
+    // Store all candidates
+    for (const candidate of scored) {
+      this.db.addSearchCandidate({
+        research_job_id: this.jobId,
+        target_asc_number: ascNumber,
+        fs_person_id: candidate.id,
+        name: candidate.name,
+        search_pass: candidate.searchPass || 0,
+        search_query: candidate.searchQuery || '',
+        fs_score: candidate.score || 0,
+        computed_score: candidate.computedScore,
+        selected: candidate === scored[0] && candidate.computedScore >= 40,
+        rejection_reason: candidate.computedScore < 40 ? `Score ${candidate.computedScore} below threshold` : '',
+        raw_data: candidate.raw || {},
+      });
+    }
+
+    const best = scored[0];
+    console.log(`[Engine] asc#${ascNumber}: best FS match "${best.name}" score=${best.computedScore}, FS ID=${best.id}`);
+
+    // Use a lower threshold (40) for enrichment — we're not verifying, just linking
+    if (best.computedScore < 40) {
+      console.log(`[Engine] asc#${ascNumber}: best score ${best.computedScore} too low for FS link — keeping customer data`);
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
+        verification_notes: `Customer-provided data — best FS match "${best.name}" scored ${best.computedScore}/100 (too low to link)`,
+        search_log: searchLog,
+      });
+      return null;
+    }
+
+    // Enrich: add FS person ID, update dates/places from FS, keep name & confidence at 100%
+    const enrichData = {
+      fs_person_id: best.id,
+      search_log: searchLog,
+      verification_notes: `Customer-provided data — linked to FamilySearch person ${best.id} (match score: ${best.computedScore}/100)`,
+    };
+    // Add FS dates/places only if customer didn't provide them
+    const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
+    if (!existing.birth_date && best.birthDate) enrichData.birth_date = best.birthDate;
+    if (!existing.birth_place && best.birthPlace) enrichData.birth_place = best.birthPlace;
+    if (!existing.death_date && best.deathDate) enrichData.death_date = best.deathDate;
+    if (!existing.death_place && best.deathPlace) enrichData.death_place = best.deathPlace;
+    if (existing.gender === 'Unknown' && best.gender && best.gender !== 'Unknown') enrichData.gender = best.gender;
+
+    this.db.updateAncestorByAscNumber(this.jobId, ascNumber, enrichData);
+    console.log(`[Engine] asc#${ascNumber}: enriched with FS ID ${best.id} — confidence stays at 100%`);
+
+    return best.id;
+  }
+
+  // Wrapper used by traverseParents — verify a person in FS and store/update the ancestor record
   async verifyAndUpdate(ascNumber, generation, knownInfo) {
     this.processedCount++;
     const name = knownInfo.givenName
@@ -385,23 +469,7 @@ class ResearchEngine {
       this.processedCount,
       Math.pow(2, this.generations + 1) - 1
     );
-
-    const result = await this.verifyPerson(knownInfo, ascNumber, generation);
-
-    // For pre-populated positions (asc#1/2/3), if verification failed, keep the
-    // customer data record instead of overwriting with "rejected"
-    const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
-    if (existing && existing.confidence_level === 'Customer Data' && !result.verified) {
-      // Keep customer data but add a note that FS verification didn't find a match
-      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
-        verification_notes: 'Customer-provided data — not found in FamilySearch (may be living/recent)',
-        search_log: JSON.stringify(result.searchLog || []),
-      });
-      console.log(`[Engine] asc#${ascNumber}: kept customer data (FS verification failed)`);
-      return { verified: false, personId: null, confidence: existing.confidence_score };
-    }
-
-    return result;
+    return this.verifyPerson(knownInfo, ascNumber, generation);
   }
 
   // From a verified person, get their parents from FS and traverse each branch
@@ -768,6 +836,29 @@ class ResearchEngine {
       }
     }
 
+    // Pass 2.7: INITIAL_VARIANT — "Alan Lance" → search "Alan L" (FS often stores middle names as initials)
+    if (knownInfo.givenName && knownInfo.givenName.includes(' ')) {
+      const givenParts = knownInfo.givenName.trim().split(/\s+/);
+      // Build initial variant: first name + first letter of each subsequent name
+      const initialVariant = givenParts[0] + ' ' + givenParts.slice(1).map(p => p.charAt(0)).join(' ');
+      if (initialVariant !== knownInfo.givenName && initialVariant !== firstGivenName) {
+        const pass27Query = {
+          givenName: initialVariant,
+          surname: knownInfo.surname,
+          birthDate: apiBirthDate,
+          birthPlace: knownInfo.birthPlace,
+          count: 10,
+        };
+        try {
+          const results = await fsApi.searchPerson(pass27Query);
+          addResults(results, 2.7, JSON.stringify(pass27Query));
+          searchLog.push({ pass: 2.7, strategy: 'initial_variant', query: pass27Query, results_count: results.length });
+        } catch (err) {
+          searchLog.push({ pass: 2.7, strategy: 'initial_variant', error: err.message, results_count: 0 });
+        }
+      }
+    }
+
     // Pass 3: FUZZY — name + birth year only
     if (knownInfo.birthDate) {
       const pass3Query = {
@@ -860,7 +951,21 @@ class ResearchEngine {
         const candidateFirst = candidateGiven.split(' ')[0] || '';
         const knownFirst = knownGiven.split(' ')[0] || '';
         if (candidateFirst && knownFirst && candidateFirst === knownFirst) {
-          score += Math.round(nameMax * 0.3); // First name exact match
+          // First names match — check for initial matching on subsequent names
+          // e.g., "alan l" vs "alan lance" — "l" matches start of "lance"
+          const candidateRest = candidateGiven.split(' ').slice(1);
+          const knownRest = knownGiven.split(' ').slice(1);
+          const initialMatch = candidateRest.length > 0 && knownRest.length > 0 &&
+            candidateRest.every((cp, i) => {
+              if (!knownRest[i]) return false;
+              return cp === knownRest[i] || (cp.length === 1 && knownRest[i].startsWith(cp)) ||
+                     (knownRest[i].length === 1 && cp.startsWith(knownRest[i]));
+            });
+          if (initialMatch) {
+            score += Math.round(nameMax * 0.38); // Near-full given name match (first + initials)
+          } else {
+            score += Math.round(nameMax * 0.3); // First name exact match
+          }
         } else if (nameContains(candidateGiven, knownGiven) || nameContains(knownGiven, candidateGiven)) {
           score += Math.round(nameMax * 0.12); // Partial — shared names but different order/first name
         }
