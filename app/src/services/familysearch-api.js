@@ -292,11 +292,50 @@ async function getPersonSources(personId) {
   }
 }
 
+// Extract facts by type from a person's GEDCOM X record
+// Returns categorized facts useful for evidence triangulation
+async function extractFactsByType(personId) {
+  const result = { census: [], birth: [], marriage: [], death: [], residence: [], baptism: [], burial: [], other: [] };
+  try {
+    const person = await getPersonDetails(personId);
+    if (!person || !person.facts) return result;
+
+    for (const fact of person.facts) {
+      const type = (fact.type || '').toLowerCase();
+      const entry = {
+        type: fact.type || '',
+        date: fact.date?.original || '',
+        formalDate: fact.date?.formal || '',
+        place: fact.place?.original || '',
+        value: fact.value || '',
+        qualifiers: (fact.qualifiers || []).map(q => ({ name: q.name, value: q.value })),
+      };
+
+      // Parse year from date for convenience
+      const yearMatch = entry.date.match(/(\d{4})/);
+      if (yearMatch) entry.year = parseInt(yearMatch[1], 10);
+
+      if (type.includes('census')) result.census.push(entry);
+      else if (type.includes('birth') || type.includes('christening')) result.birth.push(entry);
+      else if (type.includes('marriage')) result.marriage.push(entry);
+      else if (type.includes('death')) result.death.push(entry);
+      else if (type.includes('residence')) result.residence.push(entry);
+      else if (type.includes('baptism')) result.baptism.push(entry);
+      else if (type.includes('burial')) result.burial.push(entry);
+      else result.other.push(entry);
+    }
+  } catch (err) {
+    console.log(`[FS] extractFactsByType error for ${personId}: ${err.message}`);
+  }
+  return result;
+}
+
 module.exports = {
   searchPerson,
   getParents,
   getAncestry,
   getPersonDetails,
   getPersonSources,
+  extractFactsByType,
   rateLimitedApiRequest,
 };

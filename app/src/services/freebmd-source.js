@@ -2,8 +2,9 @@
  * They Made Me — FreeBMD Source Adapter
  *
  * Wraps freebmd-client.js with the ResearchSource interface.
- * FreeBMD is CONFIRMATION-only — it has no tree data or person search.
- * Used to confirm births, deaths, and marriages found by other sources.
+ * FreeBMD provides UK birth, marriage, and death index records (1837-1983).
+ * Used for both discovery (searchBirths/searchMarriages/searchDeaths)
+ * and confirmation (confirmBirth/confirmDeath/findMarriage).
  */
 
 const { FreeBMDClient } = require('./freebmd-client');
@@ -21,12 +22,43 @@ class FreeBMDSource extends ResearchSource {
   get sourceName() { return 'FreeBMD'; }
 
   get capabilities() {
-    return [SOURCE_CAPABILITIES.CONFIRMATION];
+    return [SOURCE_CAPABILITIES.SEARCH, SOURCE_CAPABILITIES.CONFIRMATION];
   }
 
   isAvailable() {
     return true; // No auth needed — always available
   }
+
+  // --- Raw search methods (return full result sets for discovery) ---
+
+  async searchBirths(surname, forenames = '', yearFrom = null, yearTo = null, district = '') {
+    try {
+      return await getClient().searchBirths(surname, forenames, yearFrom, yearTo, district);
+    } catch (err) {
+      console.error(`[FreeBMDSource] searchBirths error:`, err.message);
+      return [];
+    }
+  }
+
+  async searchMarriages(surname, forenames = '', yearFrom = null, yearTo = null, district = '') {
+    try {
+      return await getClient().searchMarriages(surname, forenames, yearFrom, yearTo, district);
+    } catch (err) {
+      console.error(`[FreeBMDSource] searchMarriages error:`, err.message);
+      return [];
+    }
+  }
+
+  async searchDeaths(surname, forenames = '', yearFrom = null, yearTo = null, district = '') {
+    try {
+      return await getClient().searchDeaths(surname, forenames, yearFrom, yearTo, district);
+    } catch (err) {
+      console.error(`[FreeBMDSource] searchDeaths error:`, err.message);
+      return [];
+    }
+  }
+
+  // --- Confirmation methods (return best match or null) ---
 
   async confirmBirth(firstName, lastName, birthYear, birthPlace) {
     try {
