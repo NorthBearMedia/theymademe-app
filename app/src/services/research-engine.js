@@ -868,8 +868,9 @@ class ResearchEngine {
   }
 
   // ─── Section 4: Location & Date Plausibility Scoring ────────────────
-  // Compares ancestor's data to their child's data for sanity checks
-  scoreLocationDate(asc, ancestorRecord, scoredAncestors) {
+  // Compares ancestor's data to their child's data for sanity checks.
+  // Uses facts and source citations to find location data when birth_place is empty.
+  scoreLocationDate(asc, ancestorRecord, scoredAncestors, facts, sources) {
     let points = 0;
     const notes = [];
 
@@ -886,9 +887,60 @@ class ResearchEngine {
       return { points: 0, notes };
     }
 
+    // Resolve best location for this ancestor — try birth_place first,
+    // then fall back to facts (birth place, residence, burial, census)
+    // then source citations
+    let ancestorLocationStr = ancestorRecord.birth_place || '';
+
+    if (!ancestorLocationStr && facts) {
+      // Try birth/christening place from facts
+      const birthFact = (facts.birth || []).find(f => f.place) || (facts.baptism || []).find(f => f.place);
+      if (birthFact) ancestorLocationStr = birthFact.place;
+
+      // Fall back to residence
+      if (!ancestorLocationStr) {
+        const resFact = (facts.residence || []).find(f => f.place);
+        if (resFact) ancestorLocationStr = resFact.place;
+      }
+
+      // Fall back to burial
+      if (!ancestorLocationStr) {
+        const burialFact = (facts.burial || []).find(f => f.place);
+        if (burialFact) ancestorLocationStr = burialFact.place;
+      }
+
+      // Fall back to census
+      if (!ancestorLocationStr) {
+        const censusFact = (facts.census || []).find(f => f.place);
+        if (censusFact) ancestorLocationStr = censusFact.place;
+      }
+    }
+
+    // Last resort: extract location from source citations
+    if (!ancestorLocationStr && sources && sources.length > 0) {
+      for (const s of sources) {
+        const citation = (s.citation || '').toLowerCase();
+        const title = (s.title || '').toLowerCase();
+        const text = citation + ' ' + title;
+        // Look for UK county names in the citation/title
+        const allText = text.replace(/<[^>]+>/g, ''); // strip HTML tags from citations
+        const foundCounty = [...UK_COUNTIES].find(c => allText.includes(c));
+        if (foundCounty) {
+          ancestorLocationStr = foundCounty;
+          break;
+        }
+      }
+    }
+
+    // Similarly resolve child location
+    let childLocationStr = child.birthPlace || '';
+    if (!childLocationStr && child.allPlaces) {
+      childLocationStr = child.allPlaces; // from extended scoring data
+    }
+
     // Parse places
-    const ancestorPlace = parsePlaceParts((ancestorRecord.birth_place || '').toLowerCase());
-    const childPlace = parsePlaceParts((child.birthPlace || '').toLowerCase());
+    const ancestorPlace = parsePlaceParts((ancestorLocationStr || '').toLowerCase());
+    const childPlace = parsePlaceParts((childLocationStr || '').toLowerCase());
 
     // County match
     if (ancestorPlace.county && childPlace.county) {
@@ -940,8 +992,9 @@ class ResearchEngine {
       for (let otherAsc = genStart; otherAsc <= genEnd; otherAsc++) {
         if (otherAsc === asc) continue;
         const other = scoredAncestors.get(otherAsc);
-        if (other && other.birthPlace) {
-          const otherPlace = parsePlaceParts(other.birthPlace.toLowerCase());
+        const otherPlaceStr = (other && (other.allPlaces || other.birthPlace)) || '';
+        if (other && otherPlaceStr) {
+          const otherPlace = parsePlaceParts(otherPlaceStr.toLowerCase());
           if (otherPlace.county === ancestorPlace.county) {
             points += 2;
             notes.push(`Location: county matches ${other.name} in same generation (+2)`);
@@ -2799,6 +2852,7 @@ class ResearchEngine {
             score: 100, level: 'Customer Data',
             name: rec.name, surname: parseNameParts(rec.name).surname,
             birthPlace: rec.birth_place || '', birthDate: rec.birth_date || '',
+            allPlaces: rec.birth_place || '', // Customer data uses birth_place directly
           });
           this.db.updateJobProgress(this.jobId,
             `Customer: ${rec.name}`, this.processedCount, totalPossible);
@@ -2812,20 +2866,22 @@ class ResearchEngine {
 
         let sourceResult = { points: 0, notes: ['Sources: no FS ID'], evidenceChain: [] };
         let factResult = { points: 0, notes: ['Facts: no FS ID'] };
+        let fetchedSources = [];
+        let fetchedFacts = null;
 
         // Sections 1 & 2: Fetch sources and facts from FS (if we have a person ID)
         if (rec.fs_person_id) {
           try {
-            const sources = await fsApi.getPersonSources(rec.fs_person_id);
-            sourceResult = scoreSourceRecords(sources);
+            fetchedSources = await fsApi.getPersonSources(rec.fs_person_id);
+            sourceResult = scoreSourceRecords(fetchedSources);
           } catch (err) {
             console.log(`[Engine] asc#${asc}: getPersonSources error: ${err.message}`);
             sourceResult = { points: 0, notes: [`Sources: error fetching (${err.message})`], evidenceChain: [] };
           }
 
           try {
-            const facts = await fsApi.extractFactsByType(rec.fs_person_id);
-            factResult = scorePersonFacts(facts);
+            fetchedFacts = await fsApi.extractFactsByType(rec.fs_person_id);
+            factResult = scorePersonFacts(fetchedFacts);
           } catch (err) {
             console.log(`[Engine] asc#${asc}: extractFactsByType error: ${err.message}`);
             factResult = { points: 0, notes: [`Facts: error fetching (${err.message})`] };
@@ -2835,8 +2891,8 @@ class ResearchEngine {
         // Section 3: Family context
         const familyResult = this.scoreFamilyContext(asc, scoredAncestors, rec);
 
-        // Section 4: Location & date plausibility
-        const locationResult = this.scoreLocationDate(asc, rec, scoredAncestors);
+        // Section 4: Location & date plausibility (pass facts + sources for location resolution)
+        const locationResult = this.scoreLocationDate(asc, rec, scoredAncestors, fetchedFacts, fetchedSources);
 
         // Sum all points
         const totalPoints = sourceResult.points + factResult.points + familyResult.points + locationResult.points;
@@ -2874,11 +2930,29 @@ class ResearchEngine {
           raw_data: { ...existingRaw, scoring_breakdown: scoringBreakdown },
         });
 
+        // Resolve best known location for this ancestor (for child comparisons downstream)
+        let resolvedPlace = rec.birth_place || '';
+        if (!resolvedPlace && fetchedFacts) {
+          const bp = (fetchedFacts.birth || []).find(f => f.place) || (fetchedFacts.baptism || []).find(f => f.place);
+          if (bp) resolvedPlace = bp.place;
+          if (!resolvedPlace) { const rf = (fetchedFacts.residence || []).find(f => f.place); if (rf) resolvedPlace = rf.place; }
+          if (!resolvedPlace) { const bf = (fetchedFacts.burial || []).find(f => f.place); if (bf) resolvedPlace = bf.place; }
+          if (!resolvedPlace) { const cf = (fetchedFacts.census || []).find(f => f.place); if (cf) resolvedPlace = cf.place; }
+        }
+        if (!resolvedPlace && fetchedSources.length > 0) {
+          for (const s of fetchedSources) {
+            const text = ((s.citation || '') + ' ' + (s.title || '')).toLowerCase().replace(/<[^>]+>/g, '');
+            const fc = [...UK_COUNTIES].find(c => text.includes(c));
+            if (fc) { resolvedPlace = fc; break; }
+          }
+        }
+
         // Store in scored map for downstream parents
         scoredAncestors.set(asc, {
           score: confidenceScore, level: confidenceLevel,
           name: rec.name, surname: parseNameParts(rec.name).surname,
           birthPlace: rec.birth_place || '', birthDate: rec.birth_date || '',
+          allPlaces: resolvedPlace, // resolved location for child comparisons
         });
 
         console.log(`[Engine] asc#${asc}: ${rec.name} — ${totalPoints}pts → ${confidenceLevel} ${confidenceScore}% (src=${sourceResult.points} fact=${factResult.points} fam=${familyResult.points} loc=${locationResult.points})`);
