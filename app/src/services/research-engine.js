@@ -2292,6 +2292,7 @@ class ResearchEngine {
       const subjectBirthYear = normalizeDate(this.inputData.birth_date)?.year;
       this.db.updateJobProgress(this.jobId, 'Searching FamilySearch for subject...', 0, totalPossible);
 
+      const maxAsc = Math.pow(2, this.generations + 1) - 1;
       let subjectFsId = null;
       if (this.fsSource) {
         const query = {
@@ -2318,21 +2319,35 @@ class ResearchEngine {
 
           for (const candidate of results) {
             const place = sanitizePlaceName(candidate.birthPlace || '');
-            if (isNonUkPlace(place) && !isUkPlace(place)) continue;
-            if (this.rejectedFsIds.has(candidate.id)) continue;
+            console.log(`[Engine] FS candidate: ${candidate.name} (${candidate.id}), b.${candidate.birthDate} ${place}, gender=${candidate.gender}`);
 
-            // Basic sanity: name + date roughly match
-            if (this.namesSimilar(candidate.name?.split(' ')[0], this.inputData.given_name)) {
+            if (isNonUkPlace(place) && !isUkPlace(place) && place) {
+              console.log(`[Engine]   → skipped: non-UK place (${place})`);
+              continue;
+            }
+            if (this.rejectedFsIds.has(candidate.id)) {
+              console.log(`[Engine]   → skipped: rejected FS ID`);
+              continue;
+            }
+
+            // Basic sanity: name roughly matches (given name or full name contains given name)
+            const candFirstName = (candidate.name || '').split(' ')[0];
+            const nameMatch = this.namesSimilar(candFirstName, this.inputData.given_name);
+            const surnameMatch = (candidate.name || '').toLowerCase().includes((this.inputData.surname || '').toLowerCase());
+            console.log(`[Engine]   → nameMatch=${nameMatch} (${candFirstName} vs ${this.inputData.given_name}), surnameMatch=${surnameMatch}`);
+
+            if (nameMatch || surnameMatch) {
               const candYear = normalizeDate(candidate.birthDate)?.year;
               if (!candYear || !subjectBirthYear || Math.abs(candYear - subjectBirthYear) <= 5) {
                 subjectFsId = candidate.id;
-                console.log(`[Engine] Subject matched: ${candidate.name} (${candidate.id})`);
-                // Update subject record with FS ID
+                console.log(`[Engine] ✓ Subject matched: ${candidate.name} (${candidate.id})`);
                 this.db.updateAncestorByAscNumber(this.jobId, 1, {
                   fs_person_id: subjectFsId,
                   verification_notes: `Customer-provided data | FS person linked: ${subjectFsId}`,
                 });
                 break;
+              } else {
+                console.log(`[Engine]   → skipped: year mismatch (${candYear} vs ${subjectBirthYear})`);
               }
             }
           }
@@ -2341,22 +2356,134 @@ class ResearchEngine {
         }
       }
 
-      if (!subjectFsId) {
-        console.log(`[Engine] WARNING: Subject not found in FamilySearch — will use FreeBMD-only mode`);
+      // Fallback: if subject not found, try finding father or mother in FS
+      // and use them as the tree root with shifted asc numbers
+      let treeRootFsId = subjectFsId;
+      let treeRootAsc = 1; // asc number of the tree root (1=subject, 2=father, 3=mother)
+
+      if (!subjectFsId && this.fsSource) {
+        console.log(`[Engine] Subject not found — trying father/mother as tree root...`);
+
+        // Try father first
+        if (this.inputData.father_name) {
+          const fp = parseNameParts(this.inputData.father_name);
+          const motherParts = this.inputData.mother_name ? parseNameParts(this.inputData.mother_name) : {};
+          const fatherQuery = {
+            givenName: fp.givenName || '', surname: fp.surname || '',
+            birthDate: '', birthPlace: this.inputData.birth_place || '',
+            count: 5,
+          };
+          // Use subject birth date to estimate father's birth
+          if (subjectBirthYear) {
+            fatherQuery.birthDate = `${subjectBirthYear - 28}`;
+          }
+          // Add spouse name as hint
+          if (motherParts.givenName) fatherQuery.motherGivenName = undefined; // not applicable
+          try {
+            const fatherResults = await this.fsSource.searchPerson(fatherQuery);
+            console.log(`[Engine] Father search returned ${fatherResults.length} candidates`);
+            for (const cand of fatherResults) {
+              const place = sanitizePlaceName(cand.birthPlace || '');
+              if (isNonUkPlace(place) && !isUkPlace(place) && place) continue;
+              if (this.rejectedFsIds.has(cand.id)) continue;
+              const candFirst = (cand.name || '').split(' ')[0];
+              if (this.namesSimilar(candFirst, fp.givenName) || (cand.name || '').toLowerCase().includes((fp.surname || '').toLowerCase())) {
+                treeRootFsId = cand.id;
+                treeRootAsc = 2; // father
+                console.log(`[Engine] ✓ Father matched as tree root: ${cand.name} (${cand.id})`);
+                this.db.updateAncestorByAscNumber(this.jobId, 2, {
+                  fs_person_id: cand.id,
+                  verification_notes: (this.db.getAncestorByAscNumber(this.jobId, 2)?.verification_notes || 'Customer-provided data') + ` | FS linked: ${cand.id}`,
+                });
+                break;
+              }
+            }
+          } catch (err) {
+            console.log(`[Engine] Father search error: ${err.message}`);
+          }
+        }
+
+        // If father not found, try mother
+        if (!treeRootFsId && this.inputData.mother_name) {
+          const mp = parseNameParts(this.inputData.mother_name);
+          const motherQuery = {
+            givenName: mp.givenName || '', surname: mp.surname || '',
+            birthDate: '', birthPlace: this.inputData.birth_place || '',
+            count: 5,
+          };
+          if (subjectBirthYear) {
+            motherQuery.birthDate = `${subjectBirthYear - 25}`;
+          }
+          try {
+            const motherResults = await this.fsSource.searchPerson(motherQuery);
+            console.log(`[Engine] Mother search returned ${motherResults.length} candidates`);
+            for (const cand of motherResults) {
+              const place = sanitizePlaceName(cand.birthPlace || '');
+              if (isNonUkPlace(place) && !isUkPlace(place) && place) continue;
+              if (this.rejectedFsIds.has(cand.id)) continue;
+              const candFirst = (cand.name || '').split(' ')[0];
+              if (this.namesSimilar(candFirst, mp.givenName) || (cand.name || '').toLowerCase().includes((mp.surname || '').toLowerCase())) {
+                treeRootFsId = cand.id;
+                treeRootAsc = 3; // mother
+                console.log(`[Engine] ✓ Mother matched as tree root: ${cand.name} (${cand.id})`);
+                this.db.updateAncestorByAscNumber(this.jobId, 3, {
+                  fs_person_id: cand.id,
+                  verification_notes: (this.db.getAncestorByAscNumber(this.jobId, 3)?.verification_notes || 'Customer-provided data') + ` | FS linked: ${cand.id}`,
+                });
+                break;
+              }
+            }
+          } catch (err) {
+            console.log(`[Engine] Mother search error: ${err.message}`);
+          }
+        }
+
+        if (!treeRootFsId) {
+          console.log(`[Engine] WARNING: No FS tree root found — will use FreeBMD-only mode`);
+        }
       }
 
-      // ── Phase 2: Get ancestry tree from FS in one call ──
+      // ── Phase 2: Get ancestry tree from FS ──
+      // If we found the subject, get their full tree.
+      // If we found a parent as tree root, get their tree and shift asc numbers.
 
       const fsAncestors = new Map(); // asc number → FS person data
-      if (subjectFsId) {
+
+      if (treeRootFsId) {
         this.db.updateJobProgress(this.jobId, 'Loading family tree from FamilySearch...', 1, totalPossible);
         try {
-          const ancestry = await fsApi.getAncestry(subjectFsId, this.generations);
-          console.log(`[Engine] FS getAncestry returned ${ancestry.length} persons`);
+          const treeDepth = treeRootAsc === 1 ? this.generations : this.generations - 1;
+          const ancestry = await fsApi.getAncestry(treeRootFsId, treeDepth);
+          console.log(`[Engine] FS getAncestry (root=asc#${treeRootAsc}) returned ${ancestry.length} persons`);
 
           for (const person of ancestry) {
-            if (person.ascendancy_number != null) {
-              fsAncestors.set(person.ascendancy_number, person);
+            if (person.ascendancy_number == null) continue;
+
+            // Shift asc numbers if tree root isn't the subject
+            // If treeRootAsc=2 (father), then FS asc#1 = our asc#2, FS asc#2 = our asc#4, FS asc#3 = our asc#5
+            // If treeRootAsc=3 (mother), then FS asc#1 = our asc#3, FS asc#2 = our asc#6, FS asc#3 = our asc#7
+            let ourAsc;
+            if (treeRootAsc === 1) {
+              ourAsc = person.ascendancy_number;
+            } else {
+              // Map FS asc to our asc: for each FS asc#N at generation G,
+              // our asc = treeRootAsc * 2^G + (N - 2^G)
+              // Simpler: recursively, FS #1 = our #treeRootAsc
+              // FS #2 (father of root) = our #(treeRootAsc * 2)
+              // FS #3 (mother of root) = our #(treeRootAsc * 2 + 1)
+              // FS #N = our #(treeRootAsc * 2^G + (N - 2^G)) where G = floor(log2(N))
+              const fsAsc = person.ascendancy_number;
+              if (fsAsc === 1) {
+                ourAsc = treeRootAsc;
+              } else {
+                const fsGen = Math.floor(Math.log2(fsAsc));
+                const posInGen = fsAsc - Math.pow(2, fsGen);
+                ourAsc = treeRootAsc * Math.pow(2, fsGen) + posInGen;
+              }
+            }
+
+            if (ourAsc <= maxAsc) {
+              fsAncestors.set(ourAsc, person);
             }
           }
           console.log(`[Engine] Mapped ${fsAncestors.size} ancestors to asc numbers`);
@@ -2365,11 +2492,102 @@ class ResearchEngine {
         }
       }
 
+      // If tree root was a parent, also try getAncestry on the other parent
+      if (treeRootAsc === 2 && this.inputData.mother_name) {
+        // We got father's tree, now try mother's tree
+        const otherParentAsc = 3;
+        const existing3 = this.db.getAncestorByAscNumber(this.jobId, 3);
+        let motherFsId = existing3?.fs_person_id;
+
+        if (!motherFsId && this.fsSource) {
+          const mp = parseNameParts(this.inputData.mother_name);
+          const mQuery = { givenName: mp.givenName || '', surname: mp.surname || '', birthDate: '', birthPlace: this.inputData.birth_place || '', count: 5 };
+          if (subjectBirthYear) mQuery.birthDate = `${subjectBirthYear - 25}`;
+          try {
+            const mResults = await this.fsSource.searchPerson(mQuery);
+            for (const cand of mResults) {
+              const place = sanitizePlaceName(cand.birthPlace || '');
+              if (isNonUkPlace(place) && !isUkPlace(place) && place) continue;
+              if (this.rejectedFsIds.has(cand.id)) continue;
+              const candFirst = (cand.name || '').split(' ')[0];
+              if (this.namesSimilar(candFirst, mp.givenName)) { motherFsId = cand.id; break; }
+            }
+          } catch (e) {}
+        }
+
+        if (motherFsId) {
+          console.log(`[Engine] Also loading mother's tree from FS: ${motherFsId}`);
+          try {
+            const mAncestry = await fsApi.getAncestry(motherFsId, this.generations - 1);
+            for (const person of mAncestry) {
+              if (person.ascendancy_number == null) continue;
+              const fsAsc = person.ascendancy_number;
+              let ourAsc;
+              if (fsAsc === 1) { ourAsc = 3; }
+              else {
+                const fsGen = Math.floor(Math.log2(fsAsc));
+                const posInGen = fsAsc - Math.pow(2, fsGen);
+                ourAsc = 3 * Math.pow(2, fsGen) + posInGen;
+              }
+              if (ourAsc <= maxAsc && !fsAncestors.has(ourAsc)) {
+                fsAncestors.set(ourAsc, person);
+              }
+            }
+            console.log(`[Engine] After mother's tree: ${fsAncestors.size} total ancestors`);
+          } catch (err) {
+            console.log(`[Engine] Mother's tree error: ${err.message}`);
+          }
+        }
+      } else if (treeRootAsc === 3 && this.inputData.father_name) {
+        // We got mother's tree, now try father's tree
+        const existing2 = this.db.getAncestorByAscNumber(this.jobId, 2);
+        let fatherFsId = existing2?.fs_person_id;
+
+        if (!fatherFsId && this.fsSource) {
+          const fp = parseNameParts(this.inputData.father_name);
+          const fQuery = { givenName: fp.givenName || '', surname: fp.surname || '', birthDate: '', birthPlace: this.inputData.birth_place || '', count: 5 };
+          if (subjectBirthYear) fQuery.birthDate = `${subjectBirthYear - 28}`;
+          try {
+            const fResults = await this.fsSource.searchPerson(fQuery);
+            for (const cand of fResults) {
+              const place = sanitizePlaceName(cand.birthPlace || '');
+              if (isNonUkPlace(place) && !isUkPlace(place) && place) continue;
+              if (this.rejectedFsIds.has(cand.id)) continue;
+              const candFirst = (cand.name || '').split(' ')[0];
+              if (this.namesSimilar(candFirst, fp.givenName)) { fatherFsId = cand.id; break; }
+            }
+          } catch (e) {}
+        }
+
+        if (fatherFsId) {
+          console.log(`[Engine] Also loading father's tree from FS: ${fatherFsId}`);
+          try {
+            const fAncestry = await fsApi.getAncestry(fatherFsId, this.generations - 1);
+            for (const person of fAncestry) {
+              if (person.ascendancy_number == null) continue;
+              const fsAsc = person.ascendancy_number;
+              let ourAsc;
+              if (fsAsc === 1) { ourAsc = 2; }
+              else {
+                const fsGen = Math.floor(Math.log2(fsAsc));
+                const posInGen = fsAsc - Math.pow(2, fsGen);
+                ourAsc = 2 * Math.pow(2, fsGen) + posInGen;
+              }
+              if (ourAsc <= maxAsc && !fsAncestors.has(ourAsc)) {
+                fsAncestors.set(ourAsc, person);
+              }
+            }
+            console.log(`[Engine] After father's tree: ${fsAncestors.size} total ancestors`);
+          } catch (err) {
+            console.log(`[Engine] Father's tree error: ${err.message}`);
+          }
+        }
+      }
+
       // ── Phase 3: Store FS ancestors + confirm with FreeBMD ──
 
       console.log(`\n[Engine] ── Phase 3: Store & Confirm Ancestors ──\n`);
 
-      const maxAsc = Math.pow(2, this.generations + 1) - 1;
       const storedAscNumbers = new Set();
 
       for (let asc = 1; asc <= maxAsc; asc++) {
