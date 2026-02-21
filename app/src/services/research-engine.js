@@ -84,6 +84,88 @@ function placeContains(candidatePlace, knownPlace) {
   return knownWords.some(w => a.includes(w));
 }
 
+// ─── Geographic Detection ─────────────────────────────────────────────
+// Detect if a place is clearly in a non-UK country (primarily USA)
+
+const US_STATES = new Set([
+  'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado',
+  'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho',
+  'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana',
+  'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota',
+  'mississippi', 'missouri', 'montana', 'nebraska', 'nevada',
+  'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina',
+  'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+  'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas',
+  'utah', 'vermont', 'virginia', 'washington', 'west virginia',
+  'wisconsin', 'wyoming',
+]);
+
+const US_STATE_ABBREVS = new Set([
+  'al', 'ak', 'az', 'ar', 'ca', 'co', 'ct', 'de', 'fl', 'ga', 'hi',
+  'id', 'il', 'in', 'ia', 'ks', 'ky', 'la', 'me', 'md', 'ma', 'mi',
+  'mn', 'ms', 'mo', 'mt', 'ne', 'nv', 'nh', 'nj', 'nm', 'ny', 'nc',
+  'nd', 'oh', 'ok', 'or', 'pa', 'ri', 'sc', 'sd', 'tn', 'tx', 'ut',
+  'vt', 'va', 'wa', 'wv', 'wi', 'wy',
+]);
+
+const NON_UK_COUNTRIES = new Set([
+  'united states', 'united states of america', 'usa', 'us', 'america',
+  'canada', 'australia', 'new zealand', 'south africa',
+  'france', 'germany', 'italy', 'spain', 'netherlands', 'belgium',
+  'sweden', 'norway', 'denmark', 'switzerland', 'austria',
+  'india', 'china', 'japan', 'brazil', 'mexico', 'russia',
+]);
+
+const UK_INDICATORS = new Set([
+  'england', 'wales', 'scotland', 'ireland', 'united kingdom',
+  'great britain', 'uk', 'gb',
+  // English counties
+  'derbyshire', 'nottinghamshire', 'yorkshire', 'lancashire', 'cheshire',
+  'staffordshire', 'leicestershire', 'warwickshire', 'lincolnshire',
+  'norfolk', 'suffolk', 'essex', 'kent', 'sussex', 'surrey', 'hampshire',
+  'dorset', 'devon', 'cornwall', 'somerset', 'wiltshire', 'gloucestershire',
+  'oxfordshire', 'berkshire', 'buckinghamshire', 'hertfordshire', 'bedfordshire',
+  'cambridgeshire', 'northamptonshire', 'rutland', 'shropshire', 'herefordshire',
+  'worcestershire', 'middlesex', 'london', 'westmorland', 'cumberland',
+  'northumberland', 'durham', 'westmoreland', 'monmouthshire',
+  // Major UK cities
+  'birmingham', 'manchester', 'liverpool', 'leeds', 'sheffield', 'bristol',
+  'newcastle', 'nottingham', 'leicester', 'derby', 'coventry', 'cardiff',
+  'edinburgh', 'glasgow', 'belfast', 'dublin', 'bradford', 'stoke',
+  'wolverhampton', 'sunderland', 'portsmouth', 'southampton', 'brighton',
+  'plymouth', 'reading', 'hull', 'blackpool', 'preston', 'bolton',
+]);
+
+function isNonUkPlace(place) {
+  if (!place) return false;
+  const lower = place.toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+  const parts = lower.split(' ').filter(p => p.length > 0);
+
+  // Check for US states (full name)
+  for (const state of US_STATES) {
+    if (lower.includes(state)) return true;
+  }
+  // Check for US state abbreviations at end of place string (e.g., "Springfield, IL")
+  const lastPart = parts[parts.length - 1];
+  if (lastPart && US_STATE_ABBREVS.has(lastPart) && parts.length >= 2) return true;
+
+  // Check for non-UK country names
+  for (const country of NON_UK_COUNTRIES) {
+    if (lower.includes(country)) return true;
+  }
+
+  return false;
+}
+
+function isUkPlace(place) {
+  if (!place) return false;
+  const lower = place.toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+  for (const indicator of UK_INDICATORS) {
+    if (lower.includes(indicator)) return true;
+  }
+  return false;
+}
+
 // Sanitize FamilySearch place names — strip non-Latin scripts (Cyrillic, Old English, etc.)
 // and clean up resulting artifacts (extra commas, spaces)
 function sanitizePlaceName(place) {
@@ -756,11 +838,26 @@ class ResearchEngine {
     const best = scored[0];
     console.log(`[Engine] asc#${ascNumber}: best FS match "${best.name}" score=${best.computedScore}, FS ID=${best.id}`);
 
-    // Use a lower threshold (40) for enrichment — we're not verifying, just linking
-    if (best.computedScore < 40) {
+    // Enrichment threshold — must be reasonably confident it's the right person
+    // before linking FS data. Higher than verification to avoid wrong enrichment.
+    if (best.computedScore < 55) {
       console.log(`[Engine] asc#${ascNumber}: best score ${best.computedScore} too low for FS link — keeping customer data`);
       this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
         verification_notes: `Customer-provided data — best FS match "${best.name}" scored ${best.computedScore}/100 (too low to link)`,
+        search_log: searchLog,
+      });
+      return null;
+    }
+
+    // GEOGRAPHIC SAFETY CHECK: If the best match is from a non-UK country and this
+    // service primarily researches UK genealogy, reject the match even if score is ok.
+    const bestBirthPlace = best.birthPlace || '';
+    const bestDeathPlace = best.deathPlace || '';
+    if ((isNonUkPlace(bestBirthPlace) || isNonUkPlace(bestDeathPlace)) &&
+        !isUkPlace(bestBirthPlace) && !isUkPlace(bestDeathPlace)) {
+      console.log(`[Engine] asc#${ascNumber}: best match "${best.name}" from non-UK place "${bestBirthPlace || bestDeathPlace}" — rejecting enrichment`);
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
+        verification_notes: `Customer-provided data — best FS match "${best.name}" from non-UK place (${bestBirthPlace || bestDeathPlace}) — skipped`,
         search_log: searchLog,
       });
       return null;
@@ -778,7 +875,12 @@ class ResearchEngine {
     if (!existing.birth_place && best.birthPlace) enrichData.birth_place = sanitizePlaceName(best.birthPlace);
     if (!existing.death_date && best.deathDate) enrichData.death_date = best.deathDate;
     if (!existing.death_place && best.deathPlace) enrichData.death_place = sanitizePlaceName(best.deathPlace);
-    if (existing.gender === 'Unknown' && best.gender && best.gender !== 'Unknown') enrichData.gender = best.gender;
+    // NEVER overwrite gender from FS — it can be wrong. Gender for customer-provided
+    // ancestors should come from the form/notes or the asc number (even=Male, odd=Female).
+    // Only set gender if it's currently Unknown AND the asc number tells us definitively.
+    if (existing.gender === 'Unknown' && ascNumber > 1) {
+      enrichData.gender = ascNumber % 2 === 0 ? 'Male' : 'Female';
+    }
 
     this.db.updateAncestorByAscNumber(this.jobId, ascNumber, enrichData);
     console.log(`[Engine] asc#${ascNumber}: enriched with FS ID ${best.id} — confidence stays at 100%`);
@@ -974,6 +1076,23 @@ class ResearchEngine {
       parents = { father: null, mother: null };
     }
 
+    // GEOGRAPHIC FILTER: Reject tree-linked parents from clearly wrong countries.
+    // FamilySearch trees are user-submitted and can link to wrong people.
+    if (parents.father) {
+      const fPlace = parents.father.birthPlace || parents.father.deathPlace || '';
+      if (isNonUkPlace(fPlace) && !isUkPlace(fPlace)) {
+        console.log(`[Traverse] REJECTED tree father "${parents.father.name}" — non-UK place: ${fPlace}`);
+        parents.father = null;
+      }
+    }
+    if (parents.mother) {
+      const mPlace = parents.mother.birthPlace || parents.mother.deathPlace || '';
+      if (isNonUkPlace(mPlace) && !isUkPlace(mPlace)) {
+        console.log(`[Traverse] REJECTED tree mother "${parents.mother.name}" — non-UK place: ${mPlace}`);
+        parents.mother = null;
+      }
+    }
+
     // Fallback 1: If getParents returned nothing, try the ancestry/pedigree endpoint
     // Try each tree source for ancestry data
     if (!parents.father && !parents.mother) {
@@ -1052,7 +1171,7 @@ class ResearchEngine {
                 computedScore: this.evaluateCandidate(c, fatherSearch, expectedGender),
               }));
               scored.sort((a, b) => b.computedScore - a.computedScore);
-              if (scored[0].computedScore >= 50) {
+              if (scored[0].computedScore >= 55) {
                 parents.father = {
                   id: scored[0].id,
                   name: scored[0].name,
@@ -1089,7 +1208,7 @@ class ResearchEngine {
                 computedScore: this.evaluateCandidate(c, motherSearch, expectedGender),
               }));
               scored.sort((a, b) => b.computedScore - a.computedScore);
-              if (scored[0].computedScore >= 50) {
+              if (scored[0].computedScore >= 55) {
                 parents.mother = {
                   id: scored[0].id,
                   name: scored[0].name,
@@ -1257,11 +1376,17 @@ class ResearchEngine {
 
       // Tree-link bonus: if this candidate came from FS's own tree (getParents/ancestry)
       // and matches the expected person ID, they're already linked as a parent in the tree.
-      // This is strong structural evidence worth a significant bonus.
+      // Reduced from +30 to +15 — tree links can be wrong (user-submitted trees on FS are unreliable)
       if (knownInfo.fromFsTree && knownInfo.fsPersonId && candidate.id === knownInfo.fsPersonId) {
-        const bonus = 30;
-        score = Math.min(100, score + bonus);
-        console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} for ${candidate.name} (${candidate.id}) → ${score}`);
+        // Only give tree-link bonus if the candidate is NOT from a clearly wrong country
+        const treeCandidatePlace = candidate.birthPlace || candidate.deathPlace || '';
+        if (isNonUkPlace(treeCandidatePlace) && !isUkPlace(treeCandidatePlace)) {
+          console.log(`[Score] asc#${ascNumber}: Tree-link from non-UK place "${treeCandidatePlace}" — NO bonus for ${candidate.name}`);
+        } else {
+          const bonus = 15;
+          score = Math.min(100, score + bonus);
+          console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} for ${candidate.name} (${candidate.id}) → ${score}`);
+        }
       }
 
       // Blacklist check: if this FS person was previously rejected by admin, zero their score
@@ -1281,7 +1406,7 @@ class ResearchEngine {
       let rejReason = '';
       if (candidate.blacklisted) {
         rejReason = 'Previously rejected by admin — blacklisted';
-      } else if (candidate.computedScore < 50) {
+      } else if (candidate.computedScore < 55) {
         rejReason = `Score ${candidate.computedScore} below threshold`;
       }
       this.db.addSearchCandidate({
@@ -1293,7 +1418,7 @@ class ResearchEngine {
         search_query: candidate.searchQuery || '',
         fs_score: candidate.score || 0,
         computed_score: candidate.computedScore,
-        selected: candidate === scored[0] && candidate.computedScore >= 50 && !candidate.blacklisted,
+        selected: candidate === scored[0] && candidate.computedScore >= 55 && !candidate.blacklisted,
         rejection_reason: rejReason,
         raw_data: candidate.raw || {},
       });
@@ -1305,9 +1430,9 @@ class ResearchEngine {
       console.log(`[Score] asc#${ascNumber}: Runner-up: "${scored[1].name}" score=${scored[1].computedScore}`);
     }
 
-    if (best.computedScore < 50) {
+    if (best.computedScore < 55) {
       return this.storeRejected(ascNumber, generation, knownInfo, searchLog,
-        `Best candidate score ${best.computedScore} below threshold of 50`);
+        `Best candidate score ${best.computedScore} below threshold of 55`);
     }
 
     // Fetch and score evidence
@@ -1410,7 +1535,7 @@ class ResearchEngine {
 
     this.storeOrUpdateAncestor(ascNumber, generation, ancestorData);
 
-    return { verified: finalConfidence >= 50, personId: best.id, confidence: finalConfidence, searchLog };
+    return { verified: finalConfidence >= 55, personId: best.id, confidence: finalConfidence, searchLog };
   }
 
   async verifyDirectCandidate(knownInfo, ascNumber) {
@@ -1669,14 +1794,15 @@ class ResearchEngine {
 
   evaluateCandidate(candidate, knownInfo, expectedGender) {
     let score = 0;
+    let penalties = 0;
     const hasParentInfo = !!(knownInfo.fatherGivenName || knownInfo.motherGivenName);
 
     // Determine point redistribution when parent names are unknown
     // Normal: name=25, date=25, place=20, parent=20, gender=10
-    // No parents known: name=32, date=32, place=26, gender=10
-    const nameMax = hasParentInfo ? 25 : 32;
-    const dateMax = hasParentInfo ? 25 : 32;
-    const placeMax = hasParentInfo ? 20 : 26;
+    // No parents known: name=30, date=30, place=20, gender=10, geo=10
+    const nameMax = hasParentInfo ? 25 : 30;
+    const dateMax = hasParentInfo ? 25 : 30;
+    const placeMax = hasParentInfo ? 20 : 20;
     const parentMax = 20;
     const genderMax = 10;
 
@@ -1686,24 +1812,27 @@ class ResearchEngine {
     const candidateGiven = normalizeName(parseNameParts(candidate.name).givenName);
     const knownGiven = normalizeName(knownInfo.givenName);
 
+    let surnameMatched = false;
+    let givenNameMatched = false;
+
     if (knownSurname) {
       if (candidateSurname === knownSurname) {
-        score += Math.round(nameMax * 0.6); // 60% of name points for surname
+        score += Math.round(nameMax * 0.6);
+        surnameMatched = true;
       } else if (candidateSurname.includes(knownSurname) || knownSurname.includes(candidateSurname)) {
         score += Math.round(nameMax * 0.32);
+        surnameMatched = true;
       }
     }
 
     if (knownGiven) {
       if (candidateGiven === knownGiven) {
-        score += Math.round(nameMax * 0.4); // 40% of name points for full given name match
+        score += Math.round(nameMax * 0.4);
+        givenNameMatched = true;
       } else {
-        // Check first given name specifically (most important for identity)
         const candidateFirst = candidateGiven.split(' ')[0] || '';
         const knownFirst = knownGiven.split(' ')[0] || '';
         if (candidateFirst && knownFirst && candidateFirst === knownFirst) {
-          // First names match — check for initial matching on subsequent names
-          // e.g., "alan l" vs "alan lance" — "l" matches start of "lance"
           const candidateRest = candidateGiven.split(' ').slice(1);
           const knownRest = knownGiven.split(' ').slice(1);
           const initialMatch = candidateRest.length > 0 && knownRest.length > 0 &&
@@ -1713,19 +1842,20 @@ class ResearchEngine {
                      (knownRest[i].length === 1 && cp.startsWith(knownRest[i]));
             });
           if (initialMatch) {
-            score += Math.round(nameMax * 0.38); // Near-full given name match (first + initials)
+            score += Math.round(nameMax * 0.38);
           } else if (candidateRest.length > 0 && knownRest.length > 0 &&
                      candidateRest[0].length > 1 && knownRest[0].length > 1 &&
                      candidateRest[0] !== knownRest[0]) {
-            // Explicit middle name conflict (e.g., "Janet Ruth" vs "Janet Mary")
             score += Math.round(nameMax * 0.15);
           } else {
-            score += Math.round(nameMax * 0.3); // First name exact match, no middle name conflict
+            score += Math.round(nameMax * 0.3);
           }
+          givenNameMatched = true;
         } else if (isNameVariant(candidateGiven, knownGiven)) {
-          score += Math.round(nameMax * 0.25); // Nickname/variant match (e.g., William→Bill)
+          score += Math.round(nameMax * 0.25);
+          givenNameMatched = true;
         } else if (nameContains(candidateGiven, knownGiven) || nameContains(knownGiven, candidateGiven)) {
-          score += Math.round(nameMax * 0.12); // Partial — shared names but different order/first name
+          score += Math.round(nameMax * 0.12);
         }
       }
     }
@@ -1734,11 +1864,13 @@ class ResearchEngine {
     const candidateBirth = normalizeDate(candidate.birthDate);
     const knownBirth = normalizeDate(knownInfo.birthDate);
     const birthDiff = yearDiff(candidateBirth, knownBirth);
+    let birthYearMatched = false;
 
     if (birthDiff !== null) {
-      if (birthDiff === 0) score += Math.round(dateMax * 0.6);
-      else if (birthDiff <= 2) score += Math.round(dateMax * 0.4);
+      if (birthDiff === 0) { score += Math.round(dateMax * 0.6); birthYearMatched = true; }
+      else if (birthDiff <= 2) { score += Math.round(dateMax * 0.4); birthYearMatched = true; }
       else if (birthDiff <= 5) score += Math.round(dateMax * 0.2);
+      else if (birthDiff > 10) penalties += 15; // Birth year way off — strong negative signal
     }
 
     const candidateDeath = normalizeDate(candidate.deathDate);
@@ -1749,12 +1881,12 @@ class ResearchEngine {
       if (deathDiff === 0) score += Math.round(dateMax * 0.4);
       else if (deathDiff <= 2) score += Math.round(dateMax * 0.28);
       else if (deathDiff <= 5) score += Math.round(dateMax * 0.12);
+      else if (deathDiff > 10) penalties += 10; // Death year way off
     }
 
     // PLACE MATCH (up to placeMax)
     if (knownInfo.birthPlace) {
       if (placeContains(candidate.birthPlace, knownInfo.birthPlace)) {
-        // Check if it's an exact match or partial
         const cPlace = (candidate.birthPlace || '').toLowerCase();
         const kPlace = knownInfo.birthPlace.toLowerCase();
         if (cPlace.includes(kPlace) || kPlace.includes(cPlace)) {
@@ -1771,10 +1903,38 @@ class ResearchEngine {
       }
     }
 
+    // GEOGRAPHIC PENALTY — wrong country is a strong disqualifier
+    // This is the key fix: if the customer's data suggests UK ancestry (which is the
+    // primary use case), heavily penalize candidates from the USA or other countries.
+    const candidateBirthPlace = candidate.birthPlace || '';
+    const candidateDeathPlace = candidate.deathPlace || '';
+    const knownBirthPlace = knownInfo.birthPlace || '';
+
+    // Determine if this research is UK-focused
+    // UK focus if: known place is UK, OR no place given (default assumption for this service),
+    // OR any known anchor has a UK place
+    const knownIsUk = isUkPlace(knownBirthPlace) || isUkPlace(knownInfo.deathPlace || '');
+    const candidateIsNonUk = isNonUkPlace(candidateBirthPlace) || isNonUkPlace(candidateDeathPlace);
+    const candidateIsUk = isUkPlace(candidateBirthPlace) || isUkPlace(candidateDeathPlace);
+
+    if (candidateIsNonUk && !candidateIsUk) {
+      // Candidate is from a non-UK country
+      if (knownIsUk) {
+        // We KNOW we want UK — heavy penalty
+        penalties += 35;
+        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — heavy penalty (-35)`);
+      } else if (!knownBirthPlace) {
+        // No birth place known — still penalize non-UK (this service focuses on UK genealogy)
+        penalties += 25;
+        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — moderate penalty (-25, no place constraint)`);
+      }
+    } else if (candidateIsUk && knownIsUk) {
+      // Both UK — small bonus for geographic consistency
+      score += 5;
+    }
+
     // PARENT MATCH (up to parentMax, only if parent info is known)
     if (hasParentInfo) {
-      // Check candidate's parent names against known parent names
-      // The candidate.raw may have parent info from the search result's relationships
       const fatherDisplay = candidate.fatherName || '';
       const motherDisplay = candidate.motherName || '';
 
@@ -1782,9 +1942,12 @@ class ResearchEngine {
         const knownFather = normalizeName(`${knownInfo.fatherGivenName || ''} ${knownInfo.fatherSurname || ''}`);
         if (fatherDisplay && nameContains(fatherDisplay, knownFather)) {
           score += Math.round(parentMax * 0.5);
+        } else if (fatherDisplay && knownFather) {
+          // Father name is known AND candidate has a father — but they DON'T match
+          // This is a strong negative signal (wrong family)
+          penalties += 15;
+          console.log(`[Parent] Candidate "${candidate.name}": father "${fatherDisplay}" does NOT match expected "${knownInfo.fatherGivenName} ${knownInfo.fatherSurname || ''}"`);
         } else if (candidate.searchPass === 1 && fatherDisplay === '') {
-          // Pass 1 included parent names in query — FS already filtered by parent match
-          // Give partial credit
           score += Math.round(parentMax * 0.25);
         }
       }
@@ -1793,8 +1956,46 @@ class ResearchEngine {
         const knownMother = normalizeName(`${knownInfo.motherGivenName || ''} ${knownInfo.motherSurname || ''}`);
         if (motherDisplay && nameContains(motherDisplay, knownMother)) {
           score += Math.round(parentMax * 0.5);
+        } else if (motherDisplay && knownMother) {
+          // Mother name is known AND candidate has a mother — but they DON'T match
+          penalties += 15;
+          console.log(`[Parent] Candidate "${candidate.name}": mother "${motherDisplay}" does NOT match expected "${knownInfo.motherGivenName} ${knownInfo.motherSurname || ''}"`);
         } else if (candidate.searchPass === 1 && motherDisplay === '') {
           score += Math.round(parentMax * 0.25);
+        }
+      }
+    }
+
+    // ANCHOR CROSS-VALIDATION: If we have known anchors (customer-provided family data),
+    // cross-validate candidate's parents against the expected grandparents.
+    // E.g., if searching for asc#5 (Ethel Skinner), and we know asc#10 and #11 should be
+    // her parents, check if the FS tree's parent names match those anchors.
+    if (this.knownAnchors && candidate._treeParents) {
+      const { treeFatherName, treeMotherName } = candidate._treeParents;
+      const childAsc = candidate._targetAsc;
+      if (childAsc) {
+        const expectedFatherAsc = childAsc * 2;
+        const expectedMotherAsc = childAsc * 2 + 1;
+        const expectedFather = this.knownAnchors[expectedFatherAsc];
+        const expectedMother = this.knownAnchors[expectedMotherAsc];
+
+        if (expectedFather?.givenName && treeFatherName) {
+          const expected = normalizeName(`${expectedFather.givenName} ${expectedFather.surname || ''}`);
+          if (nameContains(treeFatherName, expected)) {
+            score += 10; // Grandparent name matches — strong confirmation
+          } else {
+            penalties += 20; // Grandparent name CONFLICT — wrong family line
+            console.log(`[Anchor] Candidate "${candidate.name}" tree father "${treeFatherName}" conflicts with expected asc#${expectedFatherAsc} "${expectedFather.givenName} ${expectedFather.surname || ''}"`);
+          }
+        }
+        if (expectedMother?.givenName && treeMotherName) {
+          const expected = normalizeName(`${expectedMother.givenName} ${expectedMother.surname || ''}`);
+          if (nameContains(treeMotherName, expected)) {
+            score += 10;
+          } else {
+            penalties += 20;
+            console.log(`[Anchor] Candidate "${candidate.name}" tree mother "${treeMotherName}" conflicts with expected asc#${expectedMotherAsc} "${expectedMother.givenName} ${expectedMother.surname || ''}"`);
+          }
         }
       }
     }
@@ -1805,11 +2006,18 @@ class ResearchEngine {
       if (candidateGender === expectedGender.toLowerCase()) {
         score += genderMax;
       } else if (candidateGender && candidateGender !== 'unknown') {
-        score -= 20; // Hard penalty for wrong gender
+        penalties += 20; // Hard penalty for wrong gender
       }
     }
 
-    return Math.max(0, Math.min(100, score));
+    // MINIMUM QUALITY GATE: if neither name nor date matched, cap the score low.
+    // This prevents random people from scoring high on place/gender/parent alone.
+    if (!surnameMatched && !givenNameMatched && !birthYearMatched) {
+      score = Math.min(score, 20);
+    }
+
+    const finalScore = Math.max(0, Math.min(100, score - penalties));
+    return finalScore;
   }
 
   getExpectedGender(ascNumber) {
@@ -1820,7 +2028,7 @@ class ResearchEngine {
   getConfidenceLevel(score) {
     if (score >= 90) return 'Verified';
     if (score >= 75) return 'Probable';
-    if (score >= 50) return 'Possible';
+    if (score >= 55) return 'Possible';
     return 'Rejected';
   }
 
@@ -1885,4 +2093,4 @@ class ResearchEngine {
   }
 }
 
-module.exports = { ResearchEngine };
+module.exports = { ResearchEngine, parseNotesForAnchors, parseNameParts };

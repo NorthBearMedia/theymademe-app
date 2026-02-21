@@ -1,7 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../services/database');
-const { ResearchEngine } = require('../services/research-engine');
+const { ResearchEngine, parseNotesForAnchors, parseNameParts } = require('../services/research-engine');
 const { buildSourceRegistry } = require('../services/source-registry');
 const requireAuth = require('../middleware/auth');
 
@@ -48,6 +48,9 @@ router.post('/start', requireAuth, async (req, res) => {
     input_data: inputData,
   });
 
+  // Parse notes for anchor data (birth/death dates for father/mother/grandparents)
+  const noteAnchors = parseNotesForAnchors(notes || '');
+
   // Pre-populate ancestors from customer data — 100% confidence (customer is always right)
   // Asc#1 = Subject
   db.addAncestor({
@@ -74,15 +77,16 @@ router.post('/start', requireAuth, async (req, res) => {
 
   // Asc#2 = Father (if provided)
   if (father_name) {
+    const fatherAnchor = noteAnchors[2] || {};
     db.addAncestor({
       research_job_id: jobId,
       fs_person_id: '',
       name: father_name,
       gender: 'Male',
-      birth_date: '',
-      birth_place: '',
-      death_date: '',
-      death_place: '',
+      birth_date: fatherAnchor.birthDate || '',
+      birth_place: fatherAnchor.birthPlace || birth_place || '',
+      death_date: fatherAnchor.deathDate || '',
+      death_place: fatherAnchor.deathPlace || '',
       ascendancy_number: 2,
       generation: 1,
       confidence: 'customer_data',
@@ -99,15 +103,16 @@ router.post('/start', requireAuth, async (req, res) => {
 
   // Asc#3 = Mother (if provided)
   if (mother_name) {
+    const motherAnchor = noteAnchors[3] || {};
     db.addAncestor({
       research_job_id: jobId,
       fs_person_id: '',
       name: mother_name,
       gender: 'Female',
-      birth_date: '',
-      birth_place: '',
-      death_date: '',
-      death_place: '',
+      birth_date: motherAnchor.birthDate || '',
+      birth_place: motherAnchor.birthPlace || birth_place || '',
+      death_date: motherAnchor.deathDate || '',
+      death_place: motherAnchor.deathPlace || '',
       ascendancy_number: 3,
       generation: 1,
       confidence: 'customer_data',
@@ -120,6 +125,37 @@ router.post('/start', requireAuth, async (req, res) => {
       conflicts: [],
       verification_notes: 'Customer-provided data',
     });
+  }
+
+  // Asc#4-7 = Grandparents (if provided in notes) — also pre-populate as customer data
+  for (const ascNum of [4, 5, 6, 7]) {
+    const anchor = noteAnchors[ascNum];
+    if (anchor && anchor.givenName) {
+      const fullName = `${anchor.givenName} ${anchor.surname || ''}`.trim();
+      const gender = ascNum % 2 === 0 ? 'Male' : 'Female';
+      console.log(`[Research] Pre-populating grandparent asc#${ascNum}: ${fullName} (${anchor.birthDate || '?'}-${anchor.deathDate || '?'})`);
+      db.addAncestor({
+        research_job_id: jobId,
+        fs_person_id: '',
+        name: fullName,
+        gender,
+        birth_date: anchor.birthDate || '',
+        birth_place: anchor.birthPlace || birth_place || '',
+        death_date: anchor.deathDate || '',
+        death_place: anchor.deathPlace || '',
+        ascendancy_number: ascNum,
+        generation: 2,
+        confidence: 'customer_data',
+        sources: [],
+        raw_data: {},
+        confidence_score: 100,
+        confidence_level: 'Customer Data',
+        evidence_chain: [],
+        search_log: [],
+        conflicts: [],
+        verification_notes: 'Customer-provided data (from notes)',
+      });
+    }
   }
 
   // Run GPS-compliant research engine in background with all available sources
