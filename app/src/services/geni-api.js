@@ -121,6 +121,14 @@ async function apiGet(path, params = {}, retryAuth = true, retryCount = 0) {
       return {};
     }
 
+    // Guard against HTML responses (CDN/proxy errors, captchas, etc.)
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      const text = await response.text();
+      console.warn(`[Geni] Non-JSON response (${contentType}): ${text.substring(0, 150)}`);
+      return {};
+    }
+
     return await response.json();
   } catch (err) {
     console.error(`[Geni] Request error (${path}):`, err.message);
