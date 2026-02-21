@@ -220,12 +220,13 @@ async function getAncestry(personId, generations = 4) {
     const display = person.display || {};
     const ascNum = person.display?.ascendancyNumber;
 
-    // Extract dates/places from facts if display is empty
+    // Extract dates/places — try display fields first, then facts, then lifespan
     let birthDate = display.birthDate || '';
     let birthPlace = display.birthPlace || '';
     let deathDate = display.deathDate || '';
     let deathPlace = display.deathPlace || '';
 
+    // Extract from facts if available
     if (person.facts) {
       for (const fact of person.facts) {
         const type = (fact.type || '').toLowerCase();
@@ -240,6 +241,15 @@ async function getAncestry(personId, generations = 4) {
           if (!deathDate && dateStr) deathDate = dateStr;
           if (!deathPlace && placeStr) deathPlace = placeStr;
         }
+      }
+    }
+
+    // Parse lifespan (e.g. "1875-1958", "1875-", "-1958") for missing dates
+    if (display.lifespan && (!birthDate || !deathDate)) {
+      const lifespanMatch = display.lifespan.match(/^(\d{4})?\s*[-–]\s*(\d{4})?$/);
+      if (lifespanMatch) {
+        if (!birthDate && lifespanMatch[1]) birthDate = lifespanMatch[1];
+        if (!deathDate && lifespanMatch[2]) deathDate = lifespanMatch[2];
       }
     }
 
