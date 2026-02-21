@@ -42,6 +42,37 @@
 </div>
 
 <div class="card">
+    <h2>Geni.com Connection</h2>
+    <% if (typeof geniConnected !== 'undefined' && geniConnected) { %>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span class="badge badge-success">Connected</span>
+        </div>
+        <form action="/admin/geni/disconnect" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>
+        </form>
+    <% } else if (typeof geniConfigured !== 'undefined' && geniConfigured) { %>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span class="badge badge-danger">Not Connected</span>
+        </div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">Connect to Geni.com (~180M profiles) for additional search results.</p>
+        <a href="/admin/geni/connect" class="btn btn-primary btn-sm">Connect to Geni</a>
+    <% } else { %>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+            <span class="badge" style="background:#6c757d;color:#fff;">Not Configured</span>
+        </div>
+        <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">Set GENI_CLIENT_ID and GENI_CLIENT_SECRET environment variables to enable.</p>
+    <% } %>
+</div>
+
+<div class="card">
+    <h2>FreeBMD (UK Civil Registration)</h2>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <span class="badge badge-success">Active</span>
+    </div>
+    <p style="font-size:14px;color:var(--text-muted);">FreeBMD provides confirmation of UK births, deaths, and marriages (1837-1983). No configuration needed — always available.</p>
+</div>
+
+<div class="card">
     <div class="header-row">
         <h2 style="margin-bottom:0;">Recent Research</h2>
         <a href="/admin/research/new" class="btn btn-primary btn-sm">+ New Research</a>

@@ -10,6 +10,7 @@ const db = require('./services/database');
 // Routes
 const adminRoutes = require('./routes/admin');
 const familysearchRoutes = require('./routes/familysearch');
+const geniRoutes = require('./routes/geni');
 const researchRoutes = require('./routes/research');
 const exportRoutes = require('./routes/export');
 
@@ -95,6 +96,7 @@ app.use((req, res, next) => {
 
 // Mount routes
 app.use('/admin/familysearch', familysearchRoutes);
+app.use('/admin/geni', geniRoutes);
 app.use('/admin/research', researchRoutes);
 app.use('/admin/export', exportRoutes);
 app.use('/admin', adminRoutes);

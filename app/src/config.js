@@ -18,6 +18,17 @@ module.exports = {
   FS_TOKEN_URL: process.env.FS_TOKEN_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/token',
   FS_API_BASE: process.env.FS_API_BASE || 'https://apibeta.familysearch.org',
 
+  // Geni.com OAuth
+  GENI_CLIENT_ID: process.env.GENI_CLIENT_ID || '',
+  GENI_CLIENT_SECRET: process.env.GENI_CLIENT_SECRET || '',
+  GENI_API_URL: process.env.GENI_API_URL || 'https://www.geni.com',
+  GENI_AUTH_URL: process.env.GENI_AUTH_URL || 'https://www.geni.com/platform/oauth/authorize',
+  GENI_TOKEN_URL: process.env.GENI_TOKEN_URL || 'https://www.geni.com/platform/oauth/request_token',
+  GENI_REDIRECT_URI: process.env.GENI_REDIRECT_URI || 'https://theymademe.co.uk/admin/geni/callback',
+
+  // FreeBMD
+  FREEBMD_BASE_URL: process.env.FREEBMD_BASE_URL || 'https://www.freebmd.org.uk',
+
   // Paths
   DATA_DIR: process.env.DATA_DIR || '/app/data',
 };

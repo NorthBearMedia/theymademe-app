@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const config = require('../config');
 const db = require('../services/database');
 const oauth = require('../services/familysearch-oauth');
+const geniOauth = require('../services/geni-oauth');
 const requireAuth = require('../middleware/auth');
 
 const router = express.Router();
@@ -49,12 +50,15 @@ router.post('/logout', (req, res) => {
 // Dashboard
 router.get('/', requireAuth, (req, res) => {
   const tokenData = oauth.getStoredToken();
+  const geniToken = geniOauth.getStoredToken();
   const stats = db.getJobStats();
   const recentJobs = db.listResearchJobs(10, 0);
 
   res.render('dashboard', {
     fsConnected: !!tokenData,
     tokenData,
+    geniConnected: !!geniToken,
+    geniConfigured: !!(config.GENI_CLIENT_ID && config.GENI_CLIENT_SECRET),
     stats,
     recentJobs,
   });

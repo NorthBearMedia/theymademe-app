@@ -107,6 +107,17 @@ function initialize() {
   if (!hasColumn('ancestors', 'verification_notes')) {
     conn.exec(`ALTER TABLE ancestors ADD COLUMN verification_notes TEXT DEFAULT ''`);
   }
+
+  // Multi-source support columns
+  if (!hasColumn('search_candidates', 'source_origin')) {
+    conn.exec(`ALTER TABLE search_candidates ADD COLUMN source_origin TEXT DEFAULT 'FamilySearch'`);
+  }
+  if (!hasColumn('ancestors', 'confirmed_by')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN confirmed_by TEXT DEFAULT '[]'`);
+  }
+  if (!hasColumn('ancestors', 'source_origin')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN source_origin TEXT DEFAULT 'FamilySearch'`);
+  }
 }
 
 // Settings

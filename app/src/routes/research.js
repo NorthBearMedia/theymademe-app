@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../services/database');
 const { ResearchEngine } = require('../services/research-engine');
+const { buildSourceRegistry } = require('../services/source-registry');
 const requireAuth = require('../middleware/auth');
 
 const router = express.Router();
@@ -121,8 +122,10 @@ router.post('/start', requireAuth, async (req, res) => {
     });
   }
 
-  // Run GPS-compliant research engine in background
-  const engine = new ResearchEngine(db, jobId, inputData, gens);
+  // Run GPS-compliant research engine in background with all available sources
+  const sources = buildSourceRegistry();
+  console.log(`[Research] Starting job ${jobId} with ${sources.length} sources: ${sources.map(s => s.sourceName).join(', ')}`);
+  const engine = new ResearchEngine(db, jobId, inputData, gens, sources);
   engine.run().catch(err => {
     console.error(`Research job ${jobId} failed:`, err);
   });
@@ -202,7 +205,8 @@ router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res
   const inputData = job.input_data || {};
 
   // Re-run research engine — it will pick up from where ancestors are missing
-  const engine = new ResearchEngine(db, req.params.id, inputData, job.generations);
+  const sources = buildSourceRegistry();
+  const engine = new ResearchEngine(db, req.params.id, inputData, job.generations, sources);
 
   // Mark job as running again
   db.updateResearchJob(req.params.id, { status: 'running', progress_message: `Re-researching ancestor #${ascNumber}...` });

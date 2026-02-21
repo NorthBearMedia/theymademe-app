@@ -1,4 +1,6 @@
 const fsApi = require('./familysearch-api');
+const { SOURCE_CAPABILITIES } = require('./source-interface');
+const { mergeSearchResults, multiSourceBonus } = require('./source-merger');
 
 // ─── Utility Functions ───────────────────────────────────────────────
 
@@ -358,7 +360,7 @@ function parseNotesForAnchors(notes) {
 // ─── Research Engine ─────────────────────────────────────────────────
 
 class ResearchEngine {
-  constructor(db, jobId, inputData, generations) {
+  constructor(db, jobId, inputData, generations, sources) {
     this.db = db;
     this.jobId = jobId;
     this.inputData = inputData;
@@ -372,6 +374,139 @@ class ResearchEngine {
     if (this.rejectedFsIds.size > 0) {
       console.log(`[Engine] Loaded ${this.rejectedFsIds.size} rejected FS IDs: ${[...this.rejectedFsIds].join(', ')}`);
     }
+
+    // Multi-source support — categorize injected sources by capability
+    this.sources = sources || [];
+    this.searchSources = this.sources.filter(s =>
+      s.capabilities.includes(SOURCE_CAPABILITIES.SEARCH) && s.isAvailable()
+    );
+    this.treeSources = this.sources.filter(s =>
+      s.capabilities.includes(SOURCE_CAPABILITIES.TREE_TRAVERSAL) && s.isAvailable()
+    );
+    this.confirmationSources = this.sources.filter(s =>
+      s.capabilities.includes(SOURCE_CAPABILITIES.CONFIRMATION) && s.isAvailable()
+    );
+    // Track which source owns each person ID (e.g., 'FamilySearch' or 'Geni')
+    this.sourceOriginMap = new Map(); // personId → sourceName
+
+    if (this.sources.length > 0) {
+      console.log(`[Engine] Sources: search=[${this.searchSources.map(s => s.sourceName).join(',')}], tree=[${this.treeSources.map(s => s.sourceName).join(',')}], confirmation=[${this.confirmationSources.map(s => s.sourceName).join(',')}]`);
+    }
+  }
+
+  // Get a tree source by name (for routing parent lookups to the correct source)
+  getTreeSourceByName(name) {
+    return this.treeSources.find(s => s.sourceName === name) || null;
+  }
+
+  // Track which source found a person ID
+  trackSourceOrigin(personId, sourceName) {
+    if (personId) this.sourceOriginMap.set(personId, sourceName);
+  }
+
+  // Get the source that owns a person ID
+  getSourceOrigin(personId) {
+    return this.sourceOriginMap.get(personId) || 'FamilySearch';
+  }
+
+  // Search across all available search sources, merge results
+  async multiSourceSearch(query) {
+    const allResults = [];
+
+    for (const source of this.searchSources) {
+      try {
+        const results = await source.searchPerson(query);
+        // Tag each result with its source
+        for (const r of results) {
+          r._source = source.sourceName;
+          this.trackSourceOrigin(r.id, source.sourceName);
+        }
+        allResults.push(...results);
+      } catch (err) {
+        console.log(`[MultiSource] ${source.sourceName} search failed: ${err.message}`);
+      }
+    }
+
+    // Merge and deduplicate across sources
+    if (allResults.length > 0) {
+      return mergeSearchResults(allResults);
+    }
+    return allResults;
+  }
+
+  // Get parents from the appropriate tree source based on who found the person
+  async getParentsFromSource(personId) {
+    const sourceName = this.getSourceOrigin(personId);
+    const source = this.getTreeSourceByName(sourceName);
+
+    if (source) {
+      try {
+        const parents = await source.getParents(personId);
+        // Tag parent IDs with the same source origin
+        if (parents.father?.id) this.trackSourceOrigin(parents.father.id, sourceName);
+        if (parents.mother?.id) this.trackSourceOrigin(parents.mother.id, sourceName);
+        return parents;
+      } catch (err) {
+        console.log(`[MultiSource] ${sourceName}.getParents(${personId}) failed: ${err.message}`);
+      }
+    }
+
+    // Fallback to direct fsApi if source lookup fails
+    try {
+      return await fsApi.getParents(personId);
+    } catch (err) {
+      console.log(`[MultiSource] fsApi.getParents fallback failed for ${personId}: ${err.message}`);
+      return { father: null, mother: null };
+    }
+  }
+
+  // Run FreeBMD confirmation for a verified ancestor
+  async runFreeBMDConfirmation(ancestorData, ascNumber) {
+    if (this.confirmationSources.length === 0) return { birthConfirmed: false, deathConfirmed: false, bonusPoints: 0 };
+
+    const nameParts = parseNameParts(ancestorData.name || '');
+    const birthYear = normalizeDate(ancestorData.birth_date || ancestorData.birthDate)?.year;
+    const deathYear = normalizeDate(ancestorData.death_date || ancestorData.deathDate)?.year;
+    const birthPlace = ancestorData.birth_place || ancestorData.birthPlace || '';
+
+    let birthConfirmed = false;
+    let deathConfirmed = false;
+    let bonusPoints = 0;
+    const confirmations = [];
+
+    for (const source of this.confirmationSources) {
+      try {
+        // Confirm birth
+        if (birthYear && nameParts.givenName) {
+          const birthResult = await source.confirmBirth(
+            nameParts.givenName.split(' ')[0], nameParts.surname, birthYear, birthPlace
+          );
+          if (birthResult) {
+            birthConfirmed = true;
+            bonusPoints += 15;
+            confirmations.push(`${source.sourceName}: birth confirmed (${birthResult.year} Q${birthResult.quarter || '?'} ${birthResult.district || ''})`);
+            console.log(`[FreeBMD] asc#${ascNumber}: Birth confirmed — ${nameParts.givenName} ${nameParts.surname} ${birthYear}`);
+          }
+        }
+
+        // Confirm death
+        if (deathYear && nameParts.surname) {
+          const deathResult = await source.confirmDeath(
+            nameParts.givenName ? nameParts.givenName.split(' ')[0] : '', nameParts.surname, deathYear
+          );
+          if (deathResult) {
+            deathConfirmed = true;
+            bonusPoints += 10;
+            confirmations.push(`${source.sourceName}: death confirmed (${deathResult.year} Q${deathResult.quarter || '?'})`);
+            console.log(`[FreeBMD] asc#${ascNumber}: Death confirmed — ${nameParts.givenName} ${nameParts.surname} ${deathYear}`);
+          }
+        }
+      } catch (err) {
+        console.log(`[FreeBMD] ${source.sourceName} confirmation error for asc#${ascNumber}: ${err.message}`);
+      }
+    }
+
+    return { birthConfirmed, deathConfirmed, bonusPoints, confirmations };
   }
 
   async run() {
@@ -536,9 +671,10 @@ class ResearchEngine {
     const name = knownInfo.givenName
       ? `${knownInfo.givenName} ${knownInfo.surname || ''}`.trim()
       : `Ancestor #${ascNumber}`;
+    const sourceNames = this.searchSources.map(s => s.sourceName).join(' + ') || 'FamilySearch';
     this.db.updateJobProgress(
       this.jobId,
-      `Looking up ${name} in FamilySearch (generation ${generation})`,
+      `Looking up ${name} in ${sourceNames} (generation ${generation})`,
       this.processedCount,
       Math.pow(2, this.generations + 1) - 1
     );
@@ -788,53 +924,66 @@ class ResearchEngine {
     this.visitedIds.add(personId);
 
     let parents;
+    const sourceOrigin = this.getSourceOrigin(personId);
     try {
-      parents = await fsApi.getParents(personId);
-      // Mark getParents results as tree-sourced (they're linked in FS tree)
-      if (parents.father) parents.father._fromTree = true;
-      if (parents.mother) parents.mother._fromTree = true;
-      console.log(`[Traverse] Parents for ${personId}: father=${parents.father?.id || 'none'}, mother=${parents.mother?.id || 'none'}`);
+      parents = await this.getParentsFromSource(personId);
+      // Mark getParents results as tree-sourced (they're linked in a tree)
+      if (parents.father) {
+        parents.father._fromTree = true;
+        this.trackSourceOrigin(parents.father.id, sourceOrigin);
+      }
+      if (parents.mother) {
+        parents.mother._fromTree = true;
+        this.trackSourceOrigin(parents.mother.id, sourceOrigin);
+      }
+      console.log(`[Traverse] Parents for ${personId} (${sourceOrigin}): father=${parents.father?.id || 'none'}, mother=${parents.mother?.id || 'none'}`);
     } catch (err) {
       console.log(`Could not get parents for ${personId}: ${err.message}`);
       parents = { father: null, mother: null };
     }
 
     // Fallback 1: If getParents returned nothing, try the ancestry/pedigree endpoint
+    // Try each tree source for ancestry data
     if (!parents.father && !parents.mother) {
-      try {
-        console.log(`[Traverse] getParents empty — trying ancestry endpoint for ${personId}`);
-        const ancestry = await fsApi.getAncestry(personId, 1);
-        for (const p of ancestry) {
-          const ascNum = p.ascendancy_number;
-          if (ascNum === 2 && !parents.father) {
-            parents.father = {
-              id: p.fs_person_id,
-              name: p.name,
-              gender: p.gender || 'Male',
-              birthDate: p.birthDate || '',
-              birthPlace: p.birthPlace || '',
-              deathDate: p.deathDate || '',
-              deathPlace: p.deathPlace || '',
-              _fromTree: true, // Linked in FS tree
-            };
-            console.log(`[Traverse] Ancestry found father: ${p.name} (${p.fs_person_id})`);
+      for (const treeSource of this.treeSources) {
+        if (parents.father || parents.mother) break; // Found something, stop trying
+        try {
+          console.log(`[Traverse] getParents empty — trying ${treeSource.sourceName} ancestry for ${personId}`);
+          const ancestry = await treeSource.getAncestry(personId, 1);
+          for (const p of ancestry) {
+            const ascNum = p.ascendancy_number;
+            if (ascNum === 2 && !parents.father) {
+              parents.father = {
+                id: p.fs_person_id || p.id,
+                name: p.name,
+                gender: p.gender || 'Male',
+                birthDate: p.birthDate || '',
+                birthPlace: p.birthPlace || '',
+                deathDate: p.deathDate || '',
+                deathPlace: p.deathPlace || '',
+                _fromTree: true,
+              };
+              this.trackSourceOrigin(parents.father.id, treeSource.sourceName);
+              console.log(`[Traverse] ${treeSource.sourceName} ancestry found father: ${p.name} (${parents.father.id})`);
+            }
+            if (ascNum === 3 && !parents.mother) {
+              parents.mother = {
+                id: p.fs_person_id || p.id,
+                name: p.name,
+                gender: p.gender || 'Female',
+                birthDate: p.birthDate || '',
+                birthPlace: p.birthPlace || '',
+                deathDate: p.deathDate || '',
+                deathPlace: p.deathPlace || '',
+                _fromTree: true,
+              };
+              this.trackSourceOrigin(parents.mother.id, treeSource.sourceName);
+              console.log(`[Traverse] ${treeSource.sourceName} ancestry found mother: ${p.name} (${parents.mother.id})`);
+            }
           }
-          if (ascNum === 3 && !parents.mother) {
-            parents.mother = {
-              id: p.fs_person_id,
-              name: p.name,
-              gender: p.gender || 'Female',
-              birthDate: p.birthDate || '',
-              birthPlace: p.birthPlace || '',
-              deathDate: p.deathDate || '',
-              deathPlace: p.deathPlace || '',
-              _fromTree: true, // Linked in FS tree
-            };
-            console.log(`[Traverse] Ancestry found mother: ${p.name} (${p.fs_person_id})`);
-          }
+        } catch (err) {
+          console.log(`[Traverse] ${treeSource.sourceName} ancestry failed for ${personId}: ${err.message}`);
         }
-      } catch (err) {
-        console.log(`[Traverse] Ancestry endpoint also failed for ${personId}: ${err.message}`);
       }
     }
 
@@ -853,7 +1002,7 @@ class ResearchEngine {
         const fatherAnchor = this.knownAnchors[fatherAscNum];
         const motherAnchor = this.knownAnchors[motherAscNum];
 
-        // Search for father
+        // Search for father — use multi-source search
         if (fatherAnchor?.givenName || childSurname) {
           const fatherSearch = {
             givenName: fatherAnchor?.givenName || '',
@@ -861,9 +1010,9 @@ class ResearchEngine {
             birthDate: fatherAnchor?.birthDate || estimatedParentBirth || '',
             birthPlace: fatherAnchor?.birthPlace || childRecord.birth_place || '',
           };
-          console.log(`[Traverse] Searching for father: ${fatherSearch.givenName} ${fatherSearch.surname}`);
+          console.log(`[Traverse] Multi-source searching for father: ${fatherSearch.givenName} ${fatherSearch.surname}`);
           try {
-            const results = await fsApi.searchPerson({ ...fatherSearch, count: 5 });
+            const results = await this.multiSourceSearch({ ...fatherSearch, count: 5 });
             if (results.length > 0) {
               const expectedGender = 'Male';
               const scored = results.map(c => ({
@@ -881,7 +1030,8 @@ class ResearchEngine {
                   deathDate: scored[0].deathDate || '',
                   deathPlace: scored[0].deathPlace || '',
                 };
-                console.log(`[Traverse] Search found father: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore}`);
+                this.trackSourceOrigin(scored[0].id, scored[0]._source || 'FamilySearch');
+                console.log(`[Traverse] Search found father: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore} [${scored[0]._source || 'FS'}]`);
               }
             }
           } catch (err) {
@@ -889,7 +1039,7 @@ class ResearchEngine {
           }
         }
 
-        // Search for mother
+        // Search for mother — use multi-source search
         if (motherAnchor?.givenName || motherAnchor?.surname) {
           const motherSearch = {
             givenName: motherAnchor?.givenName || '',
@@ -897,9 +1047,9 @@ class ResearchEngine {
             birthDate: motherAnchor?.birthDate || estimatedParentBirth || '',
             birthPlace: motherAnchor?.birthPlace || childRecord.birth_place || '',
           };
-          console.log(`[Traverse] Searching for mother: ${motherSearch.givenName} ${motherSearch.surname}`);
+          console.log(`[Traverse] Multi-source searching for mother: ${motherSearch.givenName} ${motherSearch.surname}`);
           try {
-            const results = await fsApi.searchPerson({ ...motherSearch, count: 5 });
+            const results = await this.multiSourceSearch({ ...motherSearch, count: 5 });
             if (results.length > 0) {
               const expectedGender = 'Female';
               const scored = results.map(c => ({
@@ -917,7 +1067,8 @@ class ResearchEngine {
                   deathDate: scored[0].deathDate || '',
                   deathPlace: scored[0].deathPlace || '',
                 };
-                console.log(`[Traverse] Search found mother: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore}`);
+                this.trackSourceOrigin(scored[0].id, scored[0]._source || 'FamilySearch');
+                console.log(`[Traverse] Search found mother: ${scored[0].name} (${scored[0].id}) score=${scored[0].computedScore} [${scored[0]._source || 'FS'}]`);
               }
             }
           } catch (err) {
@@ -1148,6 +1299,34 @@ class ResearchEngine {
       }
     }
 
+    // Multi-source bonus: if this person was found in multiple sources (FS + Geni)
+    const candidateSources = best._sources || [best._source || 'FamilySearch'];
+    const msBonus = multiSourceBonus(candidateSources);
+    if (msBonus > 0) {
+      finalConfidence = Math.min(100, finalConfidence + msBonus);
+      console.log(`[Score] asc#${ascNumber}: Multi-source bonus +${msBonus} (found in ${candidateSources.join(', ')}) → ${finalConfidence}`);
+    }
+
+    // FreeBMD confirmation — run in parallel for birth and death
+    let freebmdConfirmations = [];
+    try {
+      const confirmation = await this.runFreeBMDConfirmation({
+        name: best.name,
+        birth_date: best.birthDate,
+        birth_place: best.birthPlace,
+        death_date: best.deathDate,
+        death_place: best.deathPlace,
+      }, ascNumber);
+
+      if (confirmation.bonusPoints > 0) {
+        finalConfidence = Math.min(100, finalConfidence + confirmation.bonusPoints);
+        freebmdConfirmations = confirmation.confirmations;
+        console.log(`[Score] asc#${ascNumber}: FreeBMD confirmation bonus +${confirmation.bonusPoints} → ${finalConfidence}`);
+      }
+    } catch (err) {
+      console.log(`[Score] asc#${ascNumber}: FreeBMD confirmation failed (non-blocking): ${err.message}`);
+    }
+
     const confidenceLevel = this.getConfidenceLevel(finalConfidence);
 
     // Build verification notes
@@ -1157,11 +1336,23 @@ class ResearchEngine {
     } else if (knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
       notes.push('Verified against FamilySearch parent link');
     }
+    if (candidateSources.length > 1) {
+      notes.push(`Found in multiple sources: ${candidateSources.join(', ')}`);
+    }
+    if (freebmdConfirmations.length > 0) {
+      notes.push(...freebmdConfirmations);
+    }
     const anchor = this.knownAnchors[ascNumber];
     if (anchor) {
       notes.push('Cross-referenced with customer-provided information');
     }
     notes.push(`Search score: ${best.computedScore}/100, Evidence score: ${evidenceResult.score}/100`);
+
+    // Build confirmed_by list for the ancestor record
+    const confirmedBy = [...candidateSources];
+    if (freebmdConfirmations.length > 0 && !confirmedBy.includes('FreeBMD')) {
+      confirmedBy.push('FreeBMD');
+    }
 
     // Store or update the verified ancestor
     const ancestorData = {
@@ -1181,6 +1372,8 @@ class ResearchEngine {
       search_log: searchLog,
       conflicts: [],
       verification_notes: notes.join('. '),
+      source_origin: best._source || this.getSourceOrigin(best.id) || 'FamilySearch',
+      confirmed_by: confirmedBy,
     };
 
     this.storeOrUpdateAncestor(ascNumber, generation, ancestorData);
@@ -1396,6 +1589,45 @@ class ResearchEngine {
           searchLog.push({ pass: 6, strategy: `nickname:${nick}`, query: pass6Query, results_count: results.length });
         } catch (err) {
           searchLog.push({ pass: 6, strategy: `nickname:${nick}`, error: err.message, results_count: 0 });
+        }
+      }
+    }
+
+    // Pass 7: MULTI-SOURCE — search all non-FamilySearch sources (Geni, etc.)
+    // FamilySearch was already queried in passes 1-6, so only query other sources here
+    const otherSearchSources = this.searchSources.filter(s => s.sourceName !== 'FamilySearch');
+    if (otherSearchSources.length > 0 && (knownInfo.givenName || knownInfo.surname)) {
+      const pass7Query = {
+        givenName: knownInfo.givenName,
+        surname: knownInfo.surname,
+        birthDate: apiBirthDate,
+        birthPlace: knownInfo.birthPlace,
+        count: 10,
+      };
+
+      for (const source of otherSearchSources) {
+        try {
+          console.log(`[Search] asc#${ascNumber}: Querying ${source.sourceName}...`);
+          const results = await source.searchPerson(pass7Query);
+          // Tag results with source name and track origin
+          for (const r of results) {
+            r._source = source.sourceName;
+            this.trackSourceOrigin(r.id, source.sourceName);
+          }
+          // Merge with existing candidates (may deduplicate with FS results)
+          const mergedNew = mergeSearchResults([...allCandidates, ...results]);
+          // Only add truly new candidates (not already in seenIds)
+          for (const r of results) {
+            if (!seenIds.has(r.id)) {
+              seenIds.add(r.id);
+              allCandidates.push({ ...r, searchPass: 7, searchQuery: `${source.sourceName}: ${JSON.stringify(pass7Query)}` });
+            }
+          }
+          searchLog.push({ pass: 7, strategy: `source:${source.sourceName}`, query: pass7Query, results_count: results.length });
+          console.log(`[Search] asc#${ascNumber}: ${source.sourceName} returned ${results.length} results`);
+        } catch (err) {
+          searchLog.push({ pass: 7, strategy: `source:${source.sourceName}`, error: err.message, results_count: 0 });
+          console.log(`[Search] asc#${ascNumber}: ${source.sourceName} search failed: ${err.message}`);
         }
       }
     }
