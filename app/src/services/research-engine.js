@@ -166,6 +166,61 @@ function isUkPlace(place) {
   return false;
 }
 
+// ─── Place Specificity Scoring ────────────────────────────────────────
+// Graduated place matching: town > county > country > partial
+
+const UK_COUNTIES = new Set([
+  'derbyshire', 'nottinghamshire', 'yorkshire', 'lancashire', 'cheshire',
+  'staffordshire', 'leicestershire', 'warwickshire', 'lincolnshire',
+  'norfolk', 'suffolk', 'essex', 'kent', 'sussex', 'surrey', 'hampshire',
+  'dorset', 'devon', 'cornwall', 'somerset', 'wiltshire', 'gloucestershire',
+  'oxfordshire', 'berkshire', 'buckinghamshire', 'hertfordshire', 'bedfordshire',
+  'cambridgeshire', 'northamptonshire', 'rutland', 'shropshire', 'herefordshire',
+  'worcestershire', 'middlesex', 'northumberland', 'durham', 'westmorland',
+  'cumberland', 'monmouthshire',
+]);
+
+const UK_COUNTRIES = new Set(['england', 'wales', 'scotland', 'ireland', 'united kingdom', 'great britain']);
+
+function parsePlaceParts(place) {
+  if (!place) return { town: null, county: null, country: null };
+  const parts = place.toLowerCase()
+    .replace(/[^a-z\s,]/g, '') // strip non-latin
+    .replace(/[,]+/g, ',').split(',').map(p => p.trim()).filter(Boolean);
+  let town = null, county = null, country = null;
+  for (const part of parts) {
+    if (UK_COUNTRIES.has(part) || part === 'uk' || part === 'gb') {
+      country = part;
+    } else if (UK_COUNTIES.has(part)) {
+      county = part;
+    } else if (!town && part.length > 1) {
+      town = part;
+    }
+  }
+  return { town, county, country };
+}
+
+// Returns specificity level: 'town', 'county', 'country', 'partial', or null
+function placeSpecificityScore(candidatePlace, knownPlace) {
+  if (!candidatePlace || !knownPlace) return null;
+  const c = parsePlaceParts(candidatePlace);
+  const k = parsePlaceParts(knownPlace);
+
+  // Town/parish match (highest specificity)
+  if (c.town && k.town && c.town === k.town) return 'town';
+
+  // County match
+  if (c.county && k.county && c.county === k.county) return 'county';
+
+  // Country match only
+  if (c.country && k.country && c.country === k.country) return 'country';
+
+  // Fallback: use existing placeContains for partial matches
+  if (placeContains(candidatePlace, knownPlace)) return 'partial';
+
+  return null;
+}
+
 // Sanitize FamilySearch place names — strip non-Latin scripts (Cyrillic, Old English, etc.)
 // and clean up resulting artifacts (extra commas, spaces)
 function sanitizePlaceName(place) {
@@ -838,10 +893,11 @@ class ResearchEngine {
     const best = scored[0];
     console.log(`[Engine] asc#${ascNumber}: best FS match "${best.name}" score=${best.computedScore}, FS ID=${best.id}`);
 
-    // Enrichment threshold — must be reasonably confident it's the right person
-    // before linking FS data. Higher than verification to avoid wrong enrichment.
-    if (best.computedScore < 55) {
-      console.log(`[Engine] asc#${ascNumber}: best score ${best.computedScore} too low for FS link — keeping customer data`);
+    // Enrichment threshold — must be confident it's the right person before linking.
+    // HIGHER than verification (65 vs 55) because a wrong FS link cascades through
+    // tree traversal, producing entire branches of wrong ancestors.
+    if (best.computedScore < 65) {
+      console.log(`[Engine] asc#${ascNumber}: best score ${best.computedScore} too low for FS link (need 65) — keeping customer data`);
       this.db.updateAncestorByAscNumber(this.jobId, ascNumber, {
         verification_notes: `Customer-provided data — best FS match "${best.name}" scored ${best.computedScore}/100 (too low to link)`,
         search_log: searchLog,
@@ -1144,6 +1200,31 @@ class ResearchEngine {
       }
     }
 
+    // GENERATION PLAUSIBILITY: parent's birth should be ~12-55 years before child
+    const childRecord = this.db.getAncestorByAscNumber(this.jobId, fromAsc);
+    const childBirthYear = childRecord ? normalizeDate(childRecord.birth_date)?.year : null;
+
+    if (childBirthYear && parents.father) {
+      const fatherBirthYear = normalizeDate(parents.father.birthDate)?.year;
+      if (fatherBirthYear) {
+        const gap = childBirthYear - fatherBirthYear;
+        if (gap < 12 || gap > 55) {
+          console.log(`[Traverse] REJECTED tree father "${parents.father.name}" — implausible gap: child born ${childBirthYear}, father born ${fatherBirthYear} (gap=${gap})`);
+          parents.father = null;
+        }
+      }
+    }
+    if (childBirthYear && parents.mother) {
+      const motherBirthYear = normalizeDate(parents.mother.birthDate)?.year;
+      if (motherBirthYear) {
+        const gap = childBirthYear - motherBirthYear;
+        if (gap < 12 || gap > 50) {
+          console.log(`[Traverse] REJECTED tree mother "${parents.mother.name}" — implausible gap: child born ${childBirthYear}, mother born ${motherBirthYear} (gap=${gap})`);
+          parents.mother = null;
+        }
+      }
+    }
+
     // Fallback 1: If getParents returned nothing, try the ancestry/pedigree endpoint
     // Try each tree source for ancestry data
     if (!parents.father && !parents.mother) {
@@ -1394,6 +1475,14 @@ class ResearchEngine {
       if (anchor.birthPlace) knownInfo.birthPlace = anchor.birthPlace;
     }
 
+    // Add child's birth year for generation plausibility scoring
+    const childAsc = Math.floor(ascNumber / 2);
+    const childRecord = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+    if (childRecord) {
+      const childBirth = normalizeDate(childRecord.birth_date);
+      if (childBirth?.year) knownInfo._childBirthYear = childBirth.year;
+    }
+
     return knownInfo;
   }
 
@@ -1459,18 +1548,34 @@ class ResearchEngine {
     const scored = allCandidates.map(candidate => {
       let score = this.evaluateCandidate(candidate, knownInfo, expectedGender);
 
-      // Tree-link bonus: if this candidate came from FS's own tree (getParents/ancestry)
-      // and matches the expected person ID, they're already linked as a parent in the tree.
-      // Reduced from +30 to +15 — tree links can be wrong (user-submitted trees on FS are unreliable)
+      // Tree-link bonus: GRADUATED based on supporting evidence quality.
+      // FS user-submitted trees are unreliable — the bonus must be earned.
       if (knownInfo.fromFsTree && knownInfo.fsPersonId && candidate.id === knownInfo.fsPersonId) {
-        // Only give tree-link bonus if the candidate is NOT from a clearly wrong country
         const treeCandidatePlace = candidate.birthPlace || candidate.deathPlace || '';
         if (isNonUkPlace(treeCandidatePlace) && !isUkPlace(treeCandidatePlace)) {
-          console.log(`[Score] asc#${ascNumber}: Tree-link from non-UK place "${treeCandidatePlace}" — NO bonus for ${candidate.name}`);
+          console.log(`[Score] asc#${ascNumber}: Tree-link from non-UK place "${treeCandidatePlace}" — NO bonus AND -10 penalty for ${candidate.name}`);
+          score = Math.max(0, score - 10);
         } else {
-          const bonus = 15;
+          // Graduated bonus based on corroborating evidence
+          const cb = normalizeDate(candidate.birthDate);
+          const kb = normalizeDate(knownInfo.birthDate);
+          const bDiff = yearDiff(cb, kb);
+          const hasDateMatch = bDiff !== null && bDiff <= 3;
+          const hasPlaceMatch = candidate.birthPlace && knownInfo.birthPlace &&
+            placeSpecificityScore(candidate.birthPlace, knownInfo.birthPlace) !== null;
+
+          let bonus;
+          if (hasDateMatch && hasPlaceMatch) {
+            bonus = 20;  // Strong evidence: tree + date + place
+          } else if (hasDateMatch) {
+            bonus = 12;  // Medium: tree + date
+          } else if (hasPlaceMatch) {
+            bonus = 10;  // Medium: tree + place
+          } else {
+            bonus = 5;   // Weak: tree link alone, no corroboration
+          }
           score = Math.min(100, score + bonus);
-          console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} for ${candidate.name} (${candidate.id}) → ${score}`);
+          console.log(`[Score] asc#${ascNumber}: Tree-link bonus +${bonus} (date=${hasDateMatch}, place=${hasPlaceMatch}) for ${candidate.name} → ${score}`);
         }
       }
 
@@ -1516,6 +1621,11 @@ class ResearchEngine {
     }
 
     if (best.computedScore < 55) {
+      // If tree-linked and below 40, don't even store — they're from a wrong tree
+      if (knownInfo.fromFsTree && knownInfo.fsPersonId && best.id === knownInfo.fsPersonId && best.computedScore < 40) {
+        console.log(`[Score] asc#${ascNumber}: Tree-linked "${best.name}" scored ${best.computedScore} < 40 — wrong tree, skipping entirely`);
+        return { verified: false, personId: null, confidence: 0, searchLog };
+      }
       return this.storeRejected(ascNumber, generation, knownInfo, searchLog,
         `Best candidate score ${best.computedScore} below threshold of 55`);
     }
@@ -1532,10 +1642,20 @@ class ResearchEngine {
     // Calculate final confidence
     let finalConfidence = Math.round(best.computedScore * 0.6 + evidenceResult.score * 0.4);
 
-    // Tree-linked parents: the tree relationship itself is evidence.
-    // Don't let low evidence scores drag down a tree-linked match.
+    // Tree-linked parents: adjust floor based on evidence quality.
+    // Better corroboration (dates/places match) = higher floor.
     if (knownInfo.fromFsTree && knownInfo.fsPersonId && best.id === knownInfo.fsPersonId) {
-      const treeFloor = Math.round(best.computedScore * 0.85);
+      const cb = normalizeDate(best.birthDate);
+      const kb = normalizeDate(knownInfo.birthDate);
+      const bDiff = yearDiff(cb, kb);
+      const hasDateCorr = bDiff !== null && bDiff <= 3;
+      const hasPlaceCorr = best.birthPlace && knownInfo.birthPlace &&
+        placeSpecificityScore(best.birthPlace, knownInfo.birthPlace) !== null;
+
+      const floorPct = (hasDateCorr && hasPlaceCorr) ? 0.85 :
+                       (hasDateCorr || hasPlaceCorr) ? 0.80 :
+                       0.70; // Weak evidence = lower floor
+      const treeFloor = Math.round(best.computedScore * floorPct);
       if (treeFloor > finalConfidence) {
         finalConfidence = treeFloor;
       }
@@ -1835,10 +1955,14 @@ class ResearchEngine {
       }
     }
 
-    // Pass 7: MULTI-SOURCE — search all non-FamilySearch sources (Geni, etc.)
-    // FamilySearch was already queried in passes 1-6, so only query other sources here
+    // Pass 7: MULTI-SOURCE — only if FS didn't produce enough good candidates.
+    // FamilySearch is the priority source. Other sources supplement when FS is thin.
     const otherSearchSources = this.searchSources.filter(s => s.sourceName !== 'FamilySearch');
-    if (otherSearchSources.length > 0 && (knownInfo.givenName || knownInfo.surname)) {
+    const expectedGenderForPass7 = this.getExpectedGender(ascNumber);
+    const fsStrongCandidates = allCandidates.filter(c =>
+      this.evaluateCandidate(c, knownInfo, expectedGenderForPass7) >= 40
+    ).length;
+    if (otherSearchSources.length > 0 && fsStrongCandidates < 3 && (knownInfo.givenName || knownInfo.surname)) {
       const pass7Query = {
         givenName: knownInfo.givenName,
         surname: knownInfo.surname,
@@ -1882,13 +2006,14 @@ class ResearchEngine {
     let penalties = 0;
     const hasParentInfo = !!(knownInfo.fatherGivenName || knownInfo.motherGivenName);
 
-    // Determine point redistribution when parent names are unknown
-    // Normal: name=25, date=25, place=20, parent=20, gender=10
-    // No parents known: name=30, date=30, place=20, gender=10, geo=10
-    const nameMax = hasParentInfo ? 25 : 30;
-    const dateMax = hasParentInfo ? 25 : 30;
-    const placeMax = hasParentInfo ? 20 : 20;
-    const parentMax = 20;
+    // Point distribution: dates & places are the dominant factors.
+    // Dates are objective facts; names are common; places discriminate at county level.
+    // With parents: name=20, date=30, place=25, parent=15, gender=10
+    // No parents:   name=22, date=35, place=28, gender=10 (bonus: geo consistency)
+    const nameMax = hasParentInfo ? 20 : 22;
+    const dateMax = hasParentInfo ? 30 : 35;
+    const placeMax = hasParentInfo ? 25 : 28;
+    const parentMax = 15;
     const genderMax = 10;
 
     // NAME MATCH (up to nameMax)
@@ -1952,10 +2077,11 @@ class ResearchEngine {
     let birthYearMatched = false;
 
     if (birthDiff !== null) {
-      if (birthDiff === 0) { score += Math.round(dateMax * 0.6); birthYearMatched = true; }
+      if (birthDiff === 0) { score += Math.round(dateMax * 0.7); birthYearMatched = true; }
+      else if (birthDiff === 1) { score += Math.round(dateMax * 0.55); birthYearMatched = true; }
       else if (birthDiff <= 2) { score += Math.round(dateMax * 0.4); birthYearMatched = true; }
       else if (birthDiff <= 5) score += Math.round(dateMax * 0.2);
-      else if (birthDiff > 10) penalties += 15; // Birth year way off — strong negative signal
+      else if (birthDiff > 10) penalties += 20; // Birth year way off — strong negative signal
     }
 
     const candidateDeath = normalizeDate(candidate.deathDate);
@@ -1963,28 +2089,49 @@ class ResearchEngine {
     const deathDiff = yearDiff(candidateDeath, knownDeath);
 
     if (deathDiff !== null) {
-      if (deathDiff === 0) score += Math.round(dateMax * 0.4);
-      else if (deathDiff <= 2) score += Math.round(dateMax * 0.28);
-      else if (deathDiff <= 5) score += Math.round(dateMax * 0.12);
-      else if (deathDiff > 10) penalties += 10; // Death year way off
+      if (deathDiff === 0) score += Math.round(dateMax * 0.3);
+      else if (deathDiff <= 2) score += Math.round(dateMax * 0.2);
+      else if (deathDiff <= 5) score += Math.round(dateMax * 0.1);
+      else if (deathDiff > 10) penalties += 15; // Death year way off
     }
 
-    // PLACE MATCH (up to placeMax)
+    // GENERATION PLAUSIBILITY: if evaluating a parent, check generation gap
+    if (knownInfo._childBirthYear && candidateBirth?.year) {
+      const gap = knownInfo._childBirthYear - candidateBirth.year;
+      if (gap < 12 || gap > 55) {
+        penalties += 25; // Impossible generation gap
+      } else if (gap > 45 || gap < 15) {
+        penalties += 10; // Unlikely but possible
+      }
+    }
+
+    // PLACE MATCH (up to placeMax) — specificity-based scoring
     if (knownInfo.birthPlace) {
-      if (placeContains(candidate.birthPlace, knownInfo.birthPlace)) {
-        const cPlace = (candidate.birthPlace || '').toLowerCase();
-        const kPlace = knownInfo.birthPlace.toLowerCase();
-        if (cPlace.includes(kPlace) || kPlace.includes(cPlace)) {
-          score += Math.round(placeMax * 0.6);
-        } else {
-          score += Math.round(placeMax * 0.35);
-        }
+      const specificity = placeSpecificityScore(candidate.birthPlace, knownInfo.birthPlace);
+      if (specificity === 'town') {
+        score += Math.round(placeMax * 0.65); // Same town/parish: strongest
+      } else if (specificity === 'county') {
+        score += Math.round(placeMax * 0.45); // Same county: strong
+      } else if (specificity === 'country') {
+        score += Math.round(placeMax * 0.2);  // Same country only: weak
+      } else if (specificity === 'partial') {
+        score += Math.round(placeMax * 0.35); // Partial match
+      }
+
+      // County mismatch penalty: both UK but different counties is a negative signal
+      const kParts = parsePlaceParts(knownInfo.birthPlace);
+      const cParts = parsePlaceParts(candidate.birthPlace || '');
+      if (kParts.county && cParts.county && kParts.county !== cParts.county) {
+        penalties += 8;
       }
     }
 
     if (knownInfo.deathPlace && candidate.deathPlace) {
-      if (placeContains(candidate.deathPlace, knownInfo.deathPlace)) {
-        score += Math.round(placeMax * 0.4);
+      const deathSpec = placeSpecificityScore(candidate.deathPlace, knownInfo.deathPlace);
+      if (deathSpec === 'town' || deathSpec === 'county') {
+        score += Math.round(placeMax * 0.35);
+      } else if (deathSpec === 'country' || deathSpec === 'partial') {
+        score += Math.round(placeMax * 0.15);
       }
     }
 
@@ -2006,16 +2153,22 @@ class ResearchEngine {
       // Candidate is from a non-UK country
       if (knownIsUk) {
         // We KNOW we want UK — heavy penalty
-        penalties += 35;
-        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — heavy penalty (-35)`);
+        penalties += 40;
+        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — heavy penalty (-40)`);
       } else if (!knownBirthPlace) {
         // No birth place known — still penalize non-UK (this service focuses on UK genealogy)
-        penalties += 25;
-        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — moderate penalty (-25, no place constraint)`);
+        penalties += 30;
+        console.log(`[Geo] Candidate "${candidate.name}" from non-UK place "${candidateBirthPlace || candidateDeathPlace}" — moderate penalty (-30, no place constraint)`);
       }
     } else if (candidateIsUk && knownIsUk) {
-      // Both UK — small bonus for geographic consistency
-      score += 5;
+      // Both UK — graduated geographic consistency bonus
+      const kp = parsePlaceParts(knownBirthPlace);
+      const cp = parsePlaceParts(candidateBirthPlace);
+      if (kp.county && cp.county && kp.county === cp.county) {
+        score += 8; // Same county — strong consistency
+      } else {
+        score += 3; // Both UK but different/unknown counties
+      }
     }
 
     // PARENT MATCH (up to parentMax, only if parent info is known)
@@ -2095,10 +2248,15 @@ class ResearchEngine {
       }
     }
 
-    // MINIMUM QUALITY GATE: if neither name nor date matched, cap the score low.
-    // This prevents random people from scoring high on place/gender/parent alone.
+    // MINIMUM QUALITY GATES
+    // Gate 1: No name AND no date match → very low cap
     if (!surnameMatched && !givenNameMatched && !birthYearMatched) {
-      score = Math.min(score, 20);
+      score = Math.min(score, 15);
+    }
+    // Gate 2: Name matched but birth year DIDN'T match when we have one to compare.
+    // Names alone are insufficient — many people share the same name.
+    if ((surnameMatched || givenNameMatched) && !birthYearMatched && knownBirth?.year) {
+      score = Math.min(score, 50);
     }
 
     const finalScore = Math.max(0, Math.min(100, score - penalties));
