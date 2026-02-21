@@ -1,25 +1,4 @@
 services:
-  port-cleanup:
-    image: alpine:3.20
-    network_mode: host
-    pid: host
-    privileged: true
-    command: >
-      sh -c "
-        echo 'Stopping services on ports 80 and 443...' &&
-        nsenter -t 1 -m -u -n -i -- sh -c '
-          systemctl stop apache2 2>/dev/null;
-          systemctl disable apache2 2>/dev/null;
-          systemctl stop nginx 2>/dev/null;
-          systemctl disable nginx 2>/dev/null;
-          fuser -k 80/tcp 2>/dev/null;
-          fuser -k 443/tcp 2>/dev/null;
-          sleep 2;
-          echo done
-        '
-      "
-    restart: "no"
-
   nginx:
     build:
       context: ./nginx
@@ -28,13 +7,11 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/www/certbot
+      - /opt/theymademe-app/letsencrypt:/etc/letsencrypt
+      - /opt/theymademe-app/certbot-webroot:/var/www/certbot
     depends_on:
-      port-cleanup:
-        condition: service_completed_successfully
       app:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - webnet
@@ -46,7 +23,7 @@ services:
     expose:
       - "3000"
     volumes:
-      - app-data:/app/data
+      - /opt/theymademe-app/data:/app/data
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -61,53 +38,49 @@ services:
       - FS_API_BASE=${FS_API_BASE}
       - SITE_URL=${SITE_URL}
       - DATA_DIR=/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
-    networks:
-      - webnet
-
-  certbot-init:
-    image: certbot/certbot:latest
-    volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/www/certbot
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        # If a real LE cert already exists (from a previous volume), just renew
-        if [ -d /etc/letsencrypt/archive/theymademe.co.uk ]; then
-          echo "Existing Let's Encrypt cert found, attempting renewal..."
-          certbot renew --non-interactive || true
-          exit 0
-        fi
-        echo "Requesting new Let's Encrypt certificate..."
-        certbot certonly --webroot --webroot-path=/var/www/certbot \
-          --email admin@theymademe.co.uk --agree-tos --no-eff-email \
-          -d theymademe.co.uk -d www.theymademe.co.uk \
-          --non-interactive
-    depends_on:
-      - nginx
-    restart: "no"
     networks:
       - webnet
 
   certbot:
     image: certbot/certbot:latest
     volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/www/certbot
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;"
+      - /opt/theymademe-app/letsencrypt:/etc/letsencrypt
+      - /opt/theymademe-app/certbot-webroot:/var/www/certbot
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # Initial certificate check/acquisition
+        if [ -d /etc/letsencrypt/archive/theymademe.co.uk ]; then
+          echo "Existing cert found, attempting renewal..."
+          certbot renew --non-interactive || true
+        else
+          echo "No cert yet, requesting from Let's Encrypt..."
+          certbot certonly --webroot --webroot-path=/var/www/certbot \
+            --email admin@theymademe.co.uk --agree-tos --no-eff-email \
+            -d theymademe.co.uk -d www.theymademe.co.uk \
+            --non-interactive || echo "Cert request failed (may be rate-limited), will retry later"
+        fi
+        # Renewal loop — runs regardless of whether initial cert succeeded
+        trap exit TERM
+        while :; do
+          sleep 12h &
+          wait $!
+          echo "Running scheduled renewal check..."
+          certbot renew --non-interactive || true
+        done
     depends_on:
-      certbot-init:
-        condition: service_completed_successfully
+      - nginx
     restart: unless-stopped
     networks:
       - webnet
-
-volumes:
-  certbot-etc:
-  certbot-var:
-  app-data:
 
 networks:
   webnet:

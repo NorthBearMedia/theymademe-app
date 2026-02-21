@@ -49,7 +49,7 @@ app.use(session({
   cookie: {
     secure: false, // Allow session cookies over HTTP (needed during SSL bootstrap)
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     sameSite: 'lax',
   },
 }));
@@ -109,7 +109,16 @@ app.use((err, req, res, _next) => {
   res.status(500).send(config.NODE_ENV === 'production' ? 'Internal server error' : err.stack);
 });
 
-app.listen(config.PORT, '0.0.0.0', () => {
+const server = app.listen(config.PORT, '0.0.0.0', () => {
   console.log(`They Made Me API running on port ${config.PORT}`);
   console.log(`Environment: ${config.NODE_ENV}`);
+});
+
+// Graceful shutdown — ensures SQLite databases are closed cleanly
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
