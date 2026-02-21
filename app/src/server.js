@@ -24,6 +24,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  strictTransportSecurity: false, // Disable HSTS — we need HTTP to work during SSL bootstrap
 }));
 
 // Logging
