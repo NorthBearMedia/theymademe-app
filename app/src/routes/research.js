@@ -73,6 +73,7 @@ router.post('/start', requireAuth, async (req, res) => {
     search_log: [],
     conflicts: [],
     verification_notes: 'Customer-provided data',
+    accepted: 1,
   });
 
   // Asc#2 = Father (if provided)
@@ -154,19 +155,29 @@ router.post('/start', requireAuth, async (req, res) => {
         search_log: [],
         conflicts: [],
         verification_notes: 'Customer-provided data (from notes)',
+        accepted: 1,
       });
     }
   }
 
-  // Run GPS-compliant research engine in background with all available sources
+  res.redirect(`/admin/research/${jobId}`);
+});
+
+// Begin research (manually triggered)
+router.post('/:id/begin', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+  if (job.status !== 'pending') return res.redirect(`/admin/research/${req.params.id}`);
+
+  const inputData = job.input_data || {};
   const sources = buildSourceRegistry();
-  console.log(`[Research] Starting job ${jobId} with ${sources.length} sources: ${sources.map(s => s.sourceName).join(', ')}`);
-  const engine = new ResearchEngine(db, jobId, inputData, gens, sources);
+  console.log(`[Research] Starting job ${req.params.id} with ${sources.length} sources: ${sources.map(s => s.sourceName).join(', ')}`);
+  const engine = new ResearchEngine(db, req.params.id, inputData, job.generations, sources);
   engine.run().catch(err => {
-    console.error(`Research job ${jobId} failed:`, err);
+    console.error(`Research job ${req.params.id} failed:`, err);
   });
 
-  res.redirect(`/admin/research/${jobId}`);
+  res.redirect(`/admin/research/${req.params.id}`);
 });
 
 // Progress polling endpoint (JSON)
@@ -188,7 +199,7 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
 
   const ancestors = db.getAncestors(req.params.id);
 
-  // Return lightweight data for the fan chart (no heavy evidence/search_log/raw_data)
+  // Return lightweight data for tree cards + fan chart (no heavy evidence/search_log/raw_data)
   const lightweight = ancestors.map(a => ({
     id: a.id,
     ascendancy_number: a.ascendancy_number,
@@ -202,7 +213,13 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
     fs_person_id: a.fs_person_id,
     confidence_score: a.confidence_score,
     confidence_level: a.confidence_level,
+    accepted: a.accepted || 0,
+    missing_info: a.missing_info || [],
   }));
+
+  // Completion counter: total slots in the tree and accepted count
+  const totalSlots = Math.pow(2, (job.generations || 4) + 1) - 1;
+  const acceptedCount = ancestors.filter(a => a.accepted || a.confidence_level === 'Customer Data').length;
 
   res.json({
     status: job.status,
@@ -211,7 +228,85 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
     progress_total: job.progress_total || 0,
     generations: job.generations,
     ancestors: lightweight,
+    total_slots: totalSlots,
+    accepted_count: acceptedCount,
   });
+});
+
+// Accept an ancestor (manually)
+router.post('/:id/ancestor/:ancestorId/accept', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
+  if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  // Mark as accepted
+  db.updateAncestorById(parseInt(req.params.ancestorId, 10), { accepted: 1 });
+  console.log(`[Accept] Accepted asc#${ancestor.ascendancy_number}: ${ancestor.name} for job ${req.params.id}`);
+
+  // Check if parent positions exist — if not and we have an FS ID, trigger parent research
+  if (ancestor.fs_person_id) {
+    const fatherAsc = ancestor.ascendancy_number * 2;
+    const motherAsc = ancestor.ascendancy_number * 2 + 1;
+    const maxAsc = Math.pow(2, (job.generations || 4) + 1) - 1;
+
+    const fatherExists = db.getAncestorByAscNumber(req.params.id, fatherAsc);
+    const motherExists = db.getAncestorByAscNumber(req.params.id, motherAsc);
+
+    if ((!fatherExists || !motherExists) && fatherAsc <= maxAsc) {
+      console.log(`[Accept] Parents missing for asc#${ancestor.ascendancy_number}, triggering research...`);
+      const inputData = job.input_data || {};
+      const sources = buildSourceRegistry();
+      const engine = new ResearchEngine(db, req.params.id, inputData, job.generations, sources);
+
+      db.updateResearchJob(req.params.id, {
+        status: 'running',
+        progress_message: `Researching parents of ${ancestor.name}...`,
+      });
+
+      engine.run().catch(err => {
+        console.error(`Parent research for job ${req.params.id} failed:`, err);
+      });
+    }
+  }
+
+  res.redirect(`/admin/research/${req.params.id}`);
+});
+
+// Update ancestor info (manual key info update)
+router.post('/:id/ancestor/:ancestorId/update-info', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
+  if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  const { birth_date, birth_place, death_date, death_place } = req.body;
+  const updates = {};
+
+  if (birth_date !== undefined && birth_date !== ancestor.birth_date) updates.birth_date = birth_date;
+  if (birth_place !== undefined && birth_place !== ancestor.birth_place) updates.birth_place = birth_place;
+  if (death_date !== undefined && death_date !== ancestor.death_date) updates.death_date = death_date;
+  if (death_place !== undefined && death_place !== ancestor.death_place) updates.death_place = death_place;
+
+  if (Object.keys(updates).length > 0) {
+    // Clear resolved missing_info items
+    let missingInfo = ancestor.missing_info || [];
+    if (typeof missingInfo === 'string') {
+      try { missingInfo = JSON.parse(missingInfo); } catch (e) { missingInfo = []; }
+    }
+
+    if (updates.birth_place) missingInfo = missingInfo.filter(m => m.type !== 'location');
+    if (updates.birth_date) missingInfo = missingInfo.filter(m => m.type !== 'date');
+
+    updates.missing_info = missingInfo;
+
+    db.updateAncestorById(parseInt(req.params.ancestorId, 10), updates);
+    console.log(`[Update-Info] Updated asc#${ancestor.ascendancy_number}: ${ancestor.name} — ${JSON.stringify(updates)}`);
+  }
+
+  res.redirect(`/admin/research/${req.params.id}/ancestor/${req.params.ancestorId}`);
 });
 
 // Delete entire research job
@@ -220,7 +315,7 @@ router.post('/:id/delete', requireAuth, (req, res) => {
   if (!job) return res.status(404).send('Research job not found');
 
   db.deleteResearchJob(req.params.id);
-  res.redirect('/admin/dashboard');
+  res.redirect('/admin');
 });
 
 // Reject ancestor and re-research (deeper search)
@@ -233,9 +328,36 @@ router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res
 
   const ascNumber = ancestor.ascendancy_number;
 
+  // Mark current ancestor's FS ID as rejected in search_candidates
+  if (ancestor.fs_person_id) {
+    const existingCandidates = db.getSearchCandidates(req.params.id, ascNumber);
+    const alreadyTracked = existingCandidates.some(c => c.fs_person_id === ancestor.fs_person_id);
+    if (!alreadyTracked) {
+      db.addSearchCandidate({
+        research_job_id: req.params.id,
+        target_asc_number: ascNumber,
+        fs_person_id: ancestor.fs_person_id,
+        name: ancestor.name,
+        search_pass: 0,
+        search_query: 'Previously selected',
+        fs_score: 0,
+        computed_score: ancestor.confidence_score || 0,
+        selected: 0,
+        rejection_reason: 'Manually rejected by admin',
+        raw_data: { display: { birthDate: ancestor.birth_date, birthPlace: ancestor.birth_place, deathDate: ancestor.death_date, deathPlace: ancestor.death_place } },
+      });
+    } else {
+      // Update existing candidate to mark as rejected
+      db.updateSearchCandidateStatus(req.params.id, ascNumber, ancestor.fs_person_id, {
+        selected: 0,
+        rejection_reason: 'Manually rejected by admin',
+      });
+    }
+  }
+
   // Delete this ancestor AND all their descendants (children in the tree are further out)
   const deleted = db.deleteDescendantAncestors(req.params.id, ascNumber);
-  console.log(`[Re-research] Deleted asc#${ascNumber} and ${deleted.length - 1} descendants for job ${req.params.id}`);
+  console.log(`[Re-research] Rejected asc#${ascNumber}: ${ancestor.name} (${ancestor.fs_person_id || 'no FS ID'}) — deleted ${deleted.length} positions`);
 
   // Rebuild input data from the job
   const inputData = job.input_data || {};
@@ -252,6 +374,87 @@ router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res
   });
 
   res.redirect(`/admin/research/${req.params.id}`);
+});
+
+// Select an alternative candidate for an ancestor position
+router.post('/:id/ancestor/:ascNumber/select-candidate', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ascNumber = parseInt(req.params.ascNumber, 10);
+  const { candidate_id } = req.body;
+  if (!candidate_id) return res.status(400).send('No candidate specified');
+
+  // Get the candidate from search_candidates
+  const candidates = db.getSearchCandidates(req.params.id, ascNumber);
+  const candidate = candidates.find(c => c.id === parseInt(candidate_id, 10));
+  if (!candidate) return res.status(404).send('Candidate not found');
+
+  // Delete existing ancestor at this position (if any — e.g. a "not found" placeholder)
+  const existing = db.getAncestorByAscNumber(req.params.id, ascNumber);
+  if (existing) {
+    db.deleteDescendantAncestors(req.params.id, ascNumber);
+  }
+
+  // Create ancestor record from the selected candidate
+  const generation = Math.floor(Math.log2(ascNumber));
+  const gender = ascNumber % 2 === 0 ? 'Male' : 'Female';
+  const rawData = candidate.raw_data || {};
+
+  const ancestorId = db.addAncestor({
+    research_job_id: req.params.id,
+    fs_person_id: candidate.fs_person_id || '',
+    name: candidate.name,
+    gender: ascNumber === 1 ? 'Unknown' : gender,
+    birth_date: rawData.display?.birthDate || '',
+    birth_place: rawData.display?.birthPlace || '',
+    death_date: rawData.display?.deathDate || '',
+    death_place: rawData.display?.deathPlace || '',
+    ascendancy_number: ascNumber,
+    generation,
+    confidence: 'selected',
+    sources: ['FamilySearch'],
+    raw_data: rawData,
+    confidence_score: candidate.computed_score || 0,
+    confidence_level: candidate.computed_score >= 90 ? 'Verified' : candidate.computed_score >= 75 ? 'Probable' : candidate.computed_score >= 50 ? 'Possible' : 'Suggested',
+    evidence_chain: [],
+    search_log: [],
+    conflicts: [],
+    verification_notes: 'Manually selected from alternative candidates by admin.',
+    accepted: candidate.computed_score > 50 ? 1 : 0,
+    missing_info: [],
+  });
+
+  // Mark this candidate as selected, unmark others
+  db.updateSearchCandidateStatus(req.params.id, ascNumber, candidate.fs_person_id, {
+    selected: 1,
+    rejection_reason: '',
+  });
+
+  console.log(`[Select-Candidate] Selected ${candidate.name} (${candidate.fs_person_id}) for asc#${ascNumber} in job ${req.params.id}`);
+
+  // If the selected candidate has an FS ID, trigger parent research (like accept does)
+  if (candidate.fs_person_id) {
+    const fatherAsc = ascNumber * 2;
+    const maxAsc = Math.pow(2, (job.generations || 4) + 1) - 1;
+
+    if (fatherAsc <= maxAsc) {
+      const inputData = job.input_data || {};
+      const sources = buildSourceRegistry();
+      const engine = new ResearchEngine(db, req.params.id, inputData, job.generations, sources);
+
+      db.updateResearchJob(req.params.id, {
+        status: 'running',
+        progress_message: `Researching parents of ${candidate.name}...`,
+      });
+
+      engine.run().catch(err => {
+        console.error(`Parent research after candidate selection failed:`, err);
+      });
+    }
+  }
+
+  res.redirect(`/admin/research/${req.params.id}/ancestor/${ancestorId}`);
 });
 
 // Ancestor detail view

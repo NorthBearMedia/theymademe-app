@@ -1,28 +1,50 @@
 <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <a href="/admin/research/<%= job.id %>" style="font-size:13px;color:var(--forest);text-decoration:underline;">&larr; Back to research results</a>
-        <% if (ancestor.confidence_level !== 'Customer Data' && ancestor.ascendancy_number > 1) { %>
-            <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.id %>/reresearch" method="POST" style="display:inline;"
-                  onsubmit="return confirm('Reject this person and re-research? This will also remove all their descendants from the tree and re-run the research engine.');">
-                <button type="submit" class="btn btn-sm" style="background:#dc3545;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">
-                    Reject &amp; Re-Research
-                </button>
-            </form>
-        <% } %>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <% if (ancestor.confidence_level !== 'Customer Data' && ancestor.ascendancy_number > 1) { %>
+                <% if (!ancestor.accepted) { %>
+                    <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.id %>/accept" method="POST" style="display:inline;">
+                        <button type="submit" class="btn btn-primary btn-sm">Accept</button>
+                    </form>
+                <% } else { %>
+                    <span class="badge badge-success">Accepted &#10003;</span>
+                <% } %>
+                <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.id %>/reresearch" method="POST" style="display:inline;"
+                      onsubmit="return confirm('Reject this person and re-research? This will also remove all their descendants from the tree and re-run the research engine.');">
+                    <button type="submit" class="btn btn-sm" style="background:#dc3545;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">
+                        Reject &amp; Re-Research
+                    </button>
+                </form>
+            <% } else { %>
+                <span class="badge badge-success">Customer Data &#10003;</span>
+            <% } %>
+        </div>
     </div>
 
     <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
         <div>
             <h2 style="margin-bottom:4px;"><%= ancestor.name %></h2>
+            <%
+              function getRelationToSubject(ascNum) {
+                if (ascNum <= 1) return 'Subject';
+                var isMale = (ascNum % 2 === 0);
+                var n = ascNum;
+                while (n > 3) { n = Math.floor(n / 2); }
+                var side = (n === 2) ? 'Paternal' : 'Maternal';
+                var gen = Math.floor(Math.log2(ascNum));
+                if (gen === 1) return isMale ? 'Father' : 'Mother';
+                if (gen === 2) return side + ' ' + (isMale ? 'Grandfather' : 'Grandmother');
+                if (gen === 3) return side + ' Great-' + (isMale ? 'Grandfather' : 'Grandmother');
+                var greats = gen - 2;
+                return side + ' ' + greats + 'x Great-' + (isMale ? 'Grandfather' : 'Grandmother');
+              }
+              var relationToSubject = getRelationToSubject(ancestor.ascendancy_number);
+            %>
+            <div style="font-size:15px;color:var(--forest);font-weight:700;margin-top:4px;"><%= relationToSubject %></div>
             <span style="font-size:13px;color:var(--text-muted);">
                 Ahnentafel #<%= ancestor.ascendancy_number %> &mdash; Generation <%= ancestor.generation %>
                 &mdash; <%= ancestor.gender %>
-                <%
-                  var genLabels = ['Subject', 'Parent', 'Grandparent', 'Great-Grandparent', '2x Great-Grandparent', '3x Great-Grandparent', '4x Great-Grandparent'];
-                  if (genLabels[ancestor.generation]) {
-                %>
-                    &mdash; <em><%= genLabels[ancestor.generation] %></em>
-                <% } %>
             </span>
             <% if (ancestor.ascendancy_number > 1 && parentName) { %>
                 <div style="font-size:12px;color:var(--sage);font-weight:600;margin-top:4px;">
@@ -53,6 +75,51 @@
         <% } %>
     </div>
 </div>
+
+<%
+  var missingInfo = ancestor.missing_info || [];
+  if (typeof missingInfo === 'string') { try { missingInfo = JSON.parse(missingInfo); } catch(e) { missingInfo = []; } }
+  if (!Array.isArray(missingInfo)) missingInfo = [];
+%>
+<% if (missingInfo.length > 0) { %>
+<div class="card">
+    <h3 style="margin-bottom:10px;color:var(--warning);">&#9888; Key Information Missing</h3>
+    <% missingInfo.forEach(function(m) { %>
+        <div style="padding:10px 14px;margin-bottom:8px;background:#fff3cd;border-left:4px solid #f39c12;border-radius:0 6px 6px 0;font-size:13px;color:#856404;">
+            <%= m.message || m %>
+        </div>
+    <% }); %>
+
+    <div style="margin-top:16px;padding:16px;background:var(--cream);border-radius:8px;">
+        <h4 style="font-size:13px;margin-bottom:10px;color:var(--forest);">Update Information</h4>
+        <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.id %>/update-info" method="POST">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div>
+                    <label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Birth Year</label>
+                    <input type="text" name="birth_date" value="<%= ancestor.birth_date || '' %>" placeholder="e.g. 1875"
+                        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Birth Place</label>
+                    <input type="text" name="birth_place" value="<%= ancestor.birth_place || '' %>" placeholder="e.g. Pinxton, Derbyshire"
+                        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Death Year</label>
+                    <input type="text" name="death_date" value="<%= ancestor.death_date || '' %>" placeholder="e.g. 1958"
+                        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:600;display:block;margin-bottom:3px;">Death Place</label>
+                    <input type="text" name="death_place" value="<%= ancestor.death_place || '' %>" placeholder="e.g. Nottingham"
+                        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" style="margin-top:10px;">Update &amp; Re-Score</button>
+        </form>
+    </div>
+</div>
+<% } %>
 
 <% if (ancestor.verification_notes) { %>
 <div class="card">
@@ -225,9 +292,21 @@
 <% } %>
 
 <% if (candidates && candidates.length > 0) { %>
+<%
+  var hasSelected = candidates.some(function(c) { return c.selected; });
+  var unselected = candidates.filter(function(c) { return !c.selected && !c.rejection_reason; });
+  var rejected = candidates.filter(function(c) { return c.rejection_reason; });
+%>
 <div class="card">
     <h3>All Candidates Considered (<%= candidates.length %>)</h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">All people found during search. The highest-scoring candidate above 50% is selected.</p>
+
+    <% if (!hasSelected && unselected.length > 0) { %>
+        <div style="padding:12px 16px;margin-bottom:16px;background:#fff3cd;border-left:4px solid #f39c12;border-radius:0 6px 6px 0;font-size:13px;color:#856404;">
+            <strong>No candidate selected.</strong> Review the alternatives below and select the best match, or reject all and request more info.
+        </div>
+    <% } %>
+
     <table style="width:100%;font-size:13px;border-collapse:collapse;margin-top:8px;">
         <thead>
             <tr style="text-align:left;border-bottom:2px solid var(--border);">
@@ -237,11 +316,12 @@
                 <th style="padding:8px;">FS Score</th>
                 <th style="padding:8px;">Our Score</th>
                 <th style="padding:8px;">Status</th>
+                <th style="padding:8px;">Action</th>
             </tr>
         </thead>
         <tbody>
             <% candidates.forEach(function(c) { %>
-                <tr style="border-bottom:1px solid var(--border);<%= c.selected ? 'background:#d4edda;' : '' %>">
+                <tr style="border-bottom:1px solid var(--border);<%= c.selected ? 'background:#d4edda;' : c.rejection_reason ? 'background:#f8d7da;opacity:0.7;' : '' %>">
                     <td style="padding:8px;font-weight:<%= c.selected ? '700' : '400' %>;">
                         <%= c.name %>
                         <% if (c.raw_data && c.raw_data.display) { %>
@@ -262,9 +342,24 @@
                     </td>
                     <td style="padding:8px;">
                         <% if (c.selected) { %>
-                            <span style="color:#155724;font-weight:600;">Selected</span>
+                            <span style="color:#155724;font-weight:600;">Selected &#10003;</span>
+                        <% } else if (c.rejection_reason) { %>
+                            <span style="color:#721c24;font-size:12px;"><%= c.rejection_reason %></span>
                         <% } else { %>
-                            <span style="color:#721c24;font-size:12px;"><%= c.rejection_reason || 'Not selected' %></span>
+                            <span style="color:var(--text-muted);font-size:12px;">Available</span>
+                        <% } %>
+                    </td>
+                    <td style="padding:8px;">
+                        <% if (!c.selected && !c.rejection_reason && c.fs_person_id) { %>
+                            <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.ascendancy_number %>/select-candidate" method="POST" style="display:inline;"
+                                  onsubmit="return confirm('Select <%= c.name %> for this position? This will replace the current ancestor.');">
+                                <input type="hidden" name="candidate_id" value="<%= c.id %>">
+                                <button type="submit" class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 10px;">Select</button>
+                            </form>
+                        <% } else if (c.selected) { %>
+                            <span style="font-size:11px;color:#155724;">Current</span>
+                        <% } else { %>
+                            <span style="font-size:11px;color:var(--text-muted);">&mdash;</span>
                         <% } %>
                     </td>
                 </tr>

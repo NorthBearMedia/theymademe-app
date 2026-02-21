@@ -21,8 +21,8 @@ const RING_BOUNDS = [
 
 // Font sizes per generation
 const FONT_SIZES = {
-  name:  [0, 8.5, 7, 6, 5.5, 4.5, 3.8],
-  detail:[0, 5.5, 5, 4.5, 4, 3.5, 3],
+  name:  [0, 8.5, 7, 6, 5.5, 4.5, 4],
+  detail:[0, 5.5, 5, 4.5, 4, 3.5, 3.2],
 };
 
 const TEXT_COLOR = rgb(0.15, 0.22, 0.18);
@@ -78,7 +78,7 @@ function formatDates(ancestor) {
     const y = extractYear(ancestor.death_date);
     if (y) parts.push('d. ' + y);
   }
-  return parts.join(' - ');
+  return parts.join(' \u2013 ');
 }
 
 function formatPlace(ancestor) {
@@ -88,6 +88,15 @@ function formatPlace(ancestor) {
   if (!cleaned) return '';
   const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
   if (parts.length <= 2) return parts.join(', ');
+  // Prefer town + county (first + second-to-last), skip country
+  if (parts.length >= 3) {
+    // Check if last part is a country (England, Wales, Scotland, etc.)
+    const lastPart = parts[parts.length - 1].toLowerCase();
+    const countries = ['england', 'wales', 'scotland', 'ireland', 'united kingdom', 'uk', 'united states', 'usa'];
+    if (countries.includes(lastPart)) {
+      return parts[0] + ', ' + parts[parts.length - 2];
+    }
+  }
   return parts[0] + ', ' + parts[parts.length - 1];
 }
 
@@ -174,6 +183,34 @@ async function generateFanChartPdf(ancestors, familyName, generations = 4) {
 
   // Draw each ancestor in their segment
   const maxAsc = Math.pow(2, generations + 1) - 1;
+
+  // Draw empty segment outlines for positions without ancestors
+  const EMPTY_COLOR = rgb(0.85, 0.82, 0.78); // light parchment outline
+  for (let asc = 2; asc <= maxAsc; asc++) {
+    if (ancestorMap[asc]) continue; // skip filled segments
+    const gen = ahnentafelGeneration(asc);
+    if (gen < 1 || gen > 6 || !RING_BOUNDS[gen]) continue;
+
+    const { inner, outer } = RING_BOUNDS[gen];
+    const { startAngle, endAngle, midAngle } = getSegmentAngle(asc);
+
+    // Draw arc lines to outline the empty segment
+    const startRad = startAngle * Math.PI / 180;
+    const endRad = endAngle * Math.PI / 180;
+    const midRad = midAngle * Math.PI / 180;
+
+    // Draw two radial lines (inner to outer at each edge)
+    const lineWidth = 0.3;
+    // Inner arc point at start angle
+    const p1 = polarToPage(inner, startAngle);
+    const p2 = polarToPage(outer, startAngle);
+    page.drawLine({ start: p1, end: p2, thickness: lineWidth, color: EMPTY_COLOR, opacity: 0.3 });
+
+    const p3 = polarToPage(inner, endAngle);
+    const p4 = polarToPage(outer, endAngle);
+    page.drawLine({ start: p3, end: p4, thickness: lineWidth, color: EMPTY_COLOR, opacity: 0.3 });
+  }
+
   for (let asc = 2; asc <= maxAsc; asc++) {
     const ancestor = ancestorMap[asc];
     if (!ancestor) continue;
@@ -190,10 +227,15 @@ async function generateFanChartPdf(ancestors, familyName, generations = 4) {
 
     // Max text width ≈ ring width (radial extent of the segment)
     const ringWidth = outer - inner;
-    const maxTextWidth = ringWidth * 0.92;
+    const maxTextWidth = ringWidth * 0.85;
 
     // Prepare text lines
-    const nameText = truncateText(ancestor.name || 'Unknown', fontBold, nameFontSize, maxTextWidth);
+    // Format name with SURNAME in uppercase
+    const nameParts = (ancestor.name || 'Unknown').split(' ');
+    const formattedName = nameParts.length > 1
+      ? nameParts.slice(0, -1).join(' ') + ' ' + nameParts[nameParts.length - 1].toUpperCase()
+      : nameParts[0].toUpperCase();
+    const nameText = truncateText(formattedName, fontBold, nameFontSize, maxTextWidth);
     const dateText = formatDates(ancestor);
     const truncDate = dateText ? truncateText(dateText, fontRegular, detailFontSize, maxTextWidth) : '';
     const placeText = formatPlace(ancestor);
@@ -227,7 +269,9 @@ async function generateFanChartPdf(ancestors, familyName, generations = 4) {
 
   // ─── Title at bottom ───────────────────────────────────────────────
   const subject = ancestorMap[1];
-  const titleText = familyName ? `The ${familyName} Family` : (subject ? subject.name : 'Family Tree');
+  const surnameParts = familyName ? familyName.split(' ') : (subject ? subject.name.split(' ') : ['Family']);
+  const displaySurname = surnameParts[surnameParts.length - 1];
+  const titleText = `The ${displaySurname} Family`;
   const titleWidth = fontBold.widthOfTextAtSize(titleText, TITLE_SIZE);
   page.drawText(titleText, {
     x: CX - titleWidth / 2,
@@ -248,14 +292,15 @@ async function generateFanChartPdf(ancestors, familyName, generations = 4) {
       color: TEXT_COLOR,
     });
 
-    const sDate = formatDates(subject);
-    if (sDate) {
-      const dWidth = fontRegular.widthOfTextAtSize(sDate, SUBTITLE_SIZE - 1);
-      page.drawText(sDate, {
-        x: CX - dWidth / 2,
+    const birthYear = extractYear(subject.birth_date);
+    if (birthYear) {
+      const bText = 'b. ' + birthYear;
+      const bWidth = fontRegular.widthOfTextAtSize(bText, SUBTITLE_SIZE - 1);
+      page.drawText(bText, {
+        x: CX - bWidth / 2,
         y: 66,
         size: SUBTITLE_SIZE - 1,
-        font: fontRegular,
+        font: fontItalic,
         color: TEXT_COLOR,
       });
     }

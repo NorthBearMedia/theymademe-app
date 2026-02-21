@@ -54,6 +54,14 @@ router.get('/', requireAuth, (req, res) => {
   const stats = db.getJobStats();
   const recentJobs = db.listResearchJobs(10, 0);
 
+  // Add completion counter to each job
+  for (const j of recentJobs) {
+    const totalSlots = Math.pow(2, (j.generations || 4) + 1) - 1;
+    const ancestors = db.getAncestors(j.id);
+    const acceptedCount = ancestors.filter(a => a.accepted || (a.confidence_level === 'Customer Data')).length;
+    j.completion = { accepted: acceptedCount, total: totalSlots };
+  }
+
   res.render('dashboard', {
     fsConnected: !!tokenData,
     tokenData,

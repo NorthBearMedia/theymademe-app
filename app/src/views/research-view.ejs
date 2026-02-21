@@ -9,6 +9,11 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
             <span class="badge <%= job.status === 'completed' ? 'badge-success' : job.status === 'running' ? 'badge-info' : job.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= job.status %></span>
+            <% if (job.status === 'pending') { %>
+                <form action="/admin/research/<%= job.id %>/begin" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-primary btn-sm">Begin Research</button>
+                </form>
+            <% } %>
             <% if (job.status === 'completed') { %>
                 <a href="/admin/export/pdf/<%= job.id %>/preview" target="_blank" class="btn btn-primary btn-sm">Preview PDF</a>
                 <a href="/admin/export/pdf/<%= job.id %>" class="btn btn-primary btn-sm">Download PDF</a>
@@ -57,32 +62,79 @@
     <% } %>
 </div>
 
-<div class="card">
-    <h2>Family Tree</h2>
-    <div id="fan-chart-container" class="fan-chart-wrap"></div>
-    <% if (job.status !== 'running') { %>
-        <div id="fan-progress"></div>
-    <% } %>
-    <div class="fan-legend">
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d4edda;"></div> Verified (90+%)</div>
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d6eaf8;"></div> Probable (75-89%)</div>
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fff3cd;"></div> Possible (50-74%)</div>
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#e8daef;"></div> Customer Data</div>
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f8d7da;"></div> Rejected</div>
-        <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f0e8da;"></div> Empty</div>
+<%
+  // Compute completion counter
+  var totalSlots = Math.pow(2, (job.generations || 4) + 1) - 1;
+  var acceptedCount = ancestors.filter(function(a) { return a.accepted || a.confidence_level === 'Customer Data'; }).length;
+  var acceptedPct = totalSlots > 0 ? Math.round(acceptedCount / totalSlots * 100) : 0;
+%>
+
+<!-- Completion Counter -->
+<div class="completion-counter">
+    <div class="counter-text">Tree Progress: <span id="completion-count"><%= acceptedCount %></span>/<%= totalSlots %> accepted</div>
+    <div class="counter-bar">
+        <div class="counter-fill" id="completion-fill" style="width:<%= acceptedPct %>%;"></div>
     </div>
 </div>
 
+<!-- View Toggle + Tree -->
+<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin-bottom:0;">Family Tree</h2>
+        <div class="view-toggle">
+            <button class="view-toggle-btn active" id="btn-tree-view" onclick="switchView('tree')">Tree View</button>
+            <button class="view-toggle-btn" id="btn-fan-view" onclick="switchView('fan')">Fan Chart</button>
+        </div>
+    </div>
+
+    <!-- Tree Cards View (default) -->
+    <div id="tree-container"></div>
+
+    <!-- Fan Chart View (hidden by default) -->
+    <div id="fan-view-container" style="display:none;">
+        <div id="fan-chart-container" class="fan-chart-wrap"></div>
+        <div class="fan-legend">
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d4edda;"></div> Verified (90+%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d6eaf8;"></div> Probable (75-89%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fff3cd;"></div> Possible (50-74%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#e8daef;"></div> Customer Data</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fce4ec;"></div> Suggested</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f0e8da;"></div> Empty</div>
+        </div>
+    </div>
+
+    <% if (job.status === 'running' || job.status === 'pending') { %>
+        <div id="fan-progress" style="margin-top:12px;">
+            <div style="background:#e8e8e8;border-radius:8px;height:20px;overflow:hidden;margin-bottom:6px;">
+                <% var pct = job.progress_total > 0 ? Math.round((job.progress_current || 0) / job.progress_total * 100) : 0; %>
+                <div style="background:var(--sage);height:100%;width:<%= pct %>%;transition:width 0.5s ease;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                    <% if (pct > 15) { %>
+                        <span style="color:white;font-size:10px;font-weight:700;"><%= pct %>%</span>
+                    <% } %>
+                </div>
+            </div>
+            <div style="font-size:13px;color:var(--forest);"><%= job.progress_message || 'Starting research...' %></div>
+        </div>
+    <% } else { %>
+        <div id="fan-progress"></div>
+    <% } %>
+</div>
+
 <script src="/fan-chart.js"></script>
+<script src="/tree-cards.js"></script>
 <script>
 (function () {
-  var container = document.getElementById('fan-chart-container');
+  var treeContainer = document.getElementById('tree-container');
+  var fanContainer = document.getElementById('fan-chart-container');
   var progressEl = document.getElementById('fan-progress');
+  var counterEl = document.getElementById('completion-count');
+  var counterFill = document.getElementById('completion-fill');
   var jobId = '<%= job.id %>';
   var generations = <%= job.generations || 4 %>;
+  var totalSlots = <%= totalSlots %>;
   var status = '<%= job.status %>';
 
-  // Initial render with server-side data
+  // Initial ancestor data with accepted + missing_info fields
   var initialAncestors = <%- JSON.stringify(ancestors.map(function(a) {
     return {
       id: a.id,
@@ -96,110 +148,38 @@
       death_place: a.death_place,
       fs_person_id: a.fs_person_id,
       confidence_score: a.confidence_score,
-      confidence_level: a.confidence_level
+      confidence_level: a.confidence_level,
+      accepted: a.accepted || 0,
+      missing_info: a.missing_info || []
     };
   })) %>;
 
-  FanChart.render(container, jobId, generations, initialAncestors);
+  // Render both views initially
+  TreeCards.render(treeContainer, jobId, generations, initialAncestors);
+  FanChart.render(fanContainer, jobId, generations, initialAncestors);
 
   // Start polling if research is running
   if (status === 'running' || status === 'pending') {
-    FanChart.startPolling(container, jobId, generations, progressEl);
+    TreeCards.startPolling(treeContainer, jobId, generations, progressEl, counterEl);
   }
+
+  // View toggle
+  window.switchView = function(view) {
+    var treeView = document.getElementById('tree-container');
+    var fanView = document.getElementById('fan-view-container');
+    var btnTree = document.getElementById('btn-tree-view');
+    var btnFan = document.getElementById('btn-fan-view');
+    if (view === 'fan') {
+      treeView.style.display = 'none';
+      fanView.style.display = 'block';
+      btnFan.classList.add('active');
+      btnTree.classList.remove('active');
+    } else {
+      treeView.style.display = 'block';
+      fanView.style.display = 'none';
+      btnTree.classList.add('active');
+      btnFan.classList.remove('active');
+    }
+  };
 })();
 </script>
-
-<% if (ancestors.length > 0) { %>
-<%
-  var verified = ancestors.filter(function(a) { return a.confidence_score >= 90; }).length;
-  var probable = ancestors.filter(function(a) { return a.confidence_score >= 75 && a.confidence_score < 90; }).length;
-  var possible = ancestors.filter(function(a) { return a.confidence_score >= 50 && a.confidence_score < 75; }).length;
-  var rejected = ancestors.filter(function(a) { return a.confidence_score < 50; }).length;
-%>
-<div class="card">
-    <h2>Ancestors Found (<%= ancestors.filter(function(a) { return a.confidence_score >= 50; }).length %> verified, <%= rejected %> rejected)</h2>
-
-    <div style="display:flex;gap:16px;margin:12px 0 20px;flex-wrap:wrap;">
-        <div style="background:#d4edda;color:#155724;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
-            <%= verified %> Verified
-        </div>
-        <div style="background:#d6eaf8;color:#1a5276;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
-            <%= probable %> Probable
-        </div>
-        <div style="background:#fff3cd;color:#856404;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
-            <%= possible %> Possible
-        </div>
-        <div style="background:#f8d7da;color:#721c24;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;">
-            <%= rejected %> Rejected
-        </div>
-    </div>
-
-    <%
-      // Build a lookup map: asc_number -> ancestor
-      var ancestorMap = {};
-      ancestors.forEach(function(a) { ancestorMap[a.ascendancy_number] = a; });
-
-      // Helper: get relationship label based on Ahnentafel number
-      function getRelationLabel(ascNum) {
-        if (ascNum <= 1) return '';
-        // Parent of this person is ascNum / 2 (integer division)
-        var childAsc = Math.floor(ascNum / 2);
-        var childAncestor = ancestorMap[childAsc];
-        var childName = childAncestor ? childAncestor.name : 'Ancestor #' + childAsc;
-        var role = (ascNum % 2 === 0) ? 'Father' : 'Mother';
-        return role + ' of ' + childName;
-      }
-    %>
-    <div class="ancestor-tree">
-        <% var currentGen = -1; %>
-        <% ancestors.forEach(function(a) { %>
-            <% if (a.generation !== currentGen) { currentGen = a.generation; %>
-                <div style="font-size:12px;font-weight:700;color:var(--sage);margin-top:18px;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">
-                    Generation <%= a.generation %><%= a.generation === 0 ? ' (Subject)' : '' %>
-                </div>
-            <% } %>
-            <%
-              var isRejected = a.confidence_score < 50;
-              var badgeColor = a.confidence_score >= 90 ? '#155724' : a.confidence_score >= 75 ? '#1a5276' : a.confidence_score >= 50 ? '#856404' : '#721c24';
-              var badgeBg = a.confidence_score >= 90 ? '#d4edda' : a.confidence_score >= 75 ? '#d6eaf8' : a.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
-              var relationLabel = getRelationLabel(a.ascendancy_number);
-            %>
-            <div class="ancestor-row" style="margin-left:<%= Math.min(a.generation * 16, 96) %>px;<%= isRejected ? 'opacity:0.5;' : '' %>">
-                <span class="gen">#<%= a.ascendancy_number %></span>
-                <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;margin-right:8px;white-space:nowrap;">
-                    <%= a.confidence_score %>% &mdash; <%= a.confidence_level || 'Unknown' %>
-                </span>
-                <div>
-                    <div class="name"><%= a.name %> <span style="font-weight:400;font-size:12px;color:var(--text-muted);">(<%= a.gender %>)</span></div>
-                    <% if (relationLabel) { %>
-                        <div style="font-size:11px;color:var(--sage);font-weight:600;margin-top:2px;"><%= relationLabel %></div>
-                    <% } %>
-                    <div class="details">
-                        <% if (a.birth_date || a.birth_place) { %>
-                            b. <%= a.birth_date %><%= a.birth_place ? ', ' + a.birth_place : '' %>
-                        <% } %>
-                        <% if (a.death_date || a.death_place) { %>
-                            &nbsp;|&nbsp; d. <%= a.death_date %><%= a.death_place ? ', ' + a.death_place : '' %>
-                        <% } %>
-                    </div>
-                    <div style="font-size:11px;margin-top:3px;display:flex;gap:12px;align-items:center;">
-                        <% if (a.sources && a.sources.length > 0) { %>
-                            <span style="color:var(--info);"><%= a.sources.length %> source(s)</span>
-                        <% } %>
-                        <% if (a.evidence_chain && a.evidence_chain.length > 0) { %>
-                            <span style="color:var(--sage);"><%= a.evidence_chain.length %> evidence items</span>
-                        <% } %>
-                        <a href="/admin/research/<%= job.id %>/ancestor/<%= a.id %>" style="color:var(--forest);text-decoration:underline;font-size:11px;">View Details</a>
-                        <% if (a.confidence_level !== 'Customer Data' && a.ascendancy_number > 1 && job.status === 'completed') { %>
-                            <form action="/admin/research/<%= job.id %>/ancestor/<%= a.id %>/reresearch" method="POST" style="display:inline;"
-                                  onsubmit="return confirm('Reject ' + '<%= a.name.replace(/'/g, "\\'") %>' + ' and re-research this branch?');">
-                                <button type="submit" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:11px;text-decoration:underline;padding:0;">Reject</button>
-                            </form>
-                        <% } %>
-                    </div>
-                </div>
-            </div>
-        <% }); %>
-    </div>
-</div>
-<% } %>

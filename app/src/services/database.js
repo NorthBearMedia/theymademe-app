@@ -118,6 +118,16 @@ function initialize() {
   if (!hasColumn('ancestors', 'source_origin')) {
     conn.exec(`ALTER TABLE ancestors ADD COLUMN source_origin TEXT DEFAULT 'FamilySearch'`);
   }
+
+  // Feature 5: accepted flag (auto-accept > 50%)
+  if (!hasColumn('ancestors', 'accepted')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN accepted INTEGER DEFAULT 0`);
+  }
+
+  // Feature 6: missing info detection
+  if (!hasColumn('ancestors', 'missing_info')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN missing_info TEXT DEFAULT '[]'`);
+  }
 }
 
 // Settings
@@ -177,8 +187,9 @@ function addAncestor(ancestor) {
       research_job_id, fs_person_id, name, gender,
       birth_date, birth_place, death_date, death_place,
       ascendancy_number, generation, confidence, sources, raw_data,
-      confidence_score, confidence_level, evidence_chain, search_log, conflicts, verification_notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      confidence_score, confidence_level, evidence_chain, search_log, conflicts, verification_notes,
+      accepted, missing_info
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     ancestor.research_job_id, ancestor.fs_person_id, ancestor.name, ancestor.gender,
     ancestor.birth_date, ancestor.birth_place, ancestor.death_date, ancestor.death_place,
@@ -186,7 +197,8 @@ function addAncestor(ancestor) {
     JSON.stringify(ancestor.sources || []), JSON.stringify(ancestor.raw_data || {}),
     ancestor.confidence_score || 0, ancestor.confidence_level || 'Unknown',
     JSON.stringify(ancestor.evidence_chain || []), JSON.stringify(ancestor.search_log || []),
-    JSON.stringify(ancestor.conflicts || []), ancestor.verification_notes || ''
+    JSON.stringify(ancestor.conflicts || []), ancestor.verification_notes || '',
+    ancestor.accepted || 0, JSON.stringify(ancestor.missing_info || [])
   );
   return result.lastInsertRowid;
 }
@@ -199,6 +211,7 @@ function getAncestors(researchJobId) {
     if (row.evidence_chain) row.evidence_chain = JSON.parse(row.evidence_chain);
     if (row.search_log) row.search_log = JSON.parse(row.search_log);
     if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
+    if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
     return row;
   });
 }
@@ -211,6 +224,7 @@ function getAncestorById(id) {
   if (row.evidence_chain) row.evidence_chain = JSON.parse(row.evidence_chain);
   if (row.search_log) row.search_log = JSON.parse(row.search_log);
   if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
+  if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
   return row;
 }
 
@@ -231,6 +245,7 @@ function getAncestorByAscNumber(researchJobId, ascNumber) {
   if (row.evidence_chain) row.evidence_chain = JSON.parse(row.evidence_chain);
   if (row.search_log) row.search_log = JSON.parse(row.search_log);
   if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
+  if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
   return row;
 }
 
@@ -247,6 +262,21 @@ function updateAncestorByAscNumber(researchJobId, ascNumber, updates) {
   }
   values.push(researchJobId, ascNumber);
   getDb().prepare(`UPDATE ancestors SET ${fields.join(', ')} WHERE research_job_id = ? AND ascendancy_number = ?`).run(...values);
+}
+
+function updateAncestorById(id, updates) {
+  const fields = [];
+  const values = [];
+  for (const [key, val] of Object.entries(updates)) {
+    fields.push(`${key} = ?`);
+    if (typeof val === 'object' && val !== null) {
+      values.push(JSON.stringify(val));
+    } else {
+      values.push(val);
+    }
+  }
+  values.push(id);
+  getDb().prepare(`UPDATE ancestors SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
 function deleteSearchCandidates(researchJobId) {
@@ -279,6 +309,17 @@ function getSearchCandidates(researchJobId, ascNumber) {
     if (row.raw_data) row.raw_data = JSON.parse(row.raw_data);
     return row;
   });
+}
+
+function updateSearchCandidateStatus(researchJobId, ascNumber, fsPersonId, updates) {
+  const fields = [];
+  const values = [];
+  for (const [key, val] of Object.entries(updates)) {
+    fields.push(`${key} = ?`);
+    values.push(val);
+  }
+  values.push(researchJobId, ascNumber, fsPersonId);
+  getDb().prepare(`UPDATE search_candidates SET ${fields.join(', ')} WHERE research_job_id = ? AND target_asc_number = ? AND fs_person_id = ?`).run(...values);
 }
 
 function deleteResearchJob(id) {
@@ -351,8 +392,8 @@ module.exports = {
   getSetting, setSetting,
   createResearchJob, getResearchJob, listResearchJobs, updateResearchJob, updateJobProgress,
   addAncestor, getAncestors, getAncestorById, deleteAncestors, deleteAncestorByAscNumber,
-  getAncestorByAscNumber, updateAncestorByAscNumber, deleteSearchCandidates,
-  addSearchCandidate, getSearchCandidates,
+  getAncestorByAscNumber, updateAncestorByAscNumber, updateAncestorById, deleteSearchCandidates,
+  addSearchCandidate, getSearchCandidates, updateSearchCandidateStatus,
   deleteResearchJob, deleteDescendantAncestors,
   getRejectedFsIds,
   getJobStats,

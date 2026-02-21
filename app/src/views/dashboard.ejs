@@ -104,6 +104,7 @@
                 <tr>
                     <th>Customer</th>
                     <th>Generations</th>
+                    <th>Progress</th>
                     <th>Status</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -114,12 +115,24 @@
                     <tr>
                         <td><strong><%= j.customer_name %></strong></td>
                         <td><%= j.generations %></td>
+                        <td style="font-size:13px;font-weight:600;color:var(--forest);">
+                            <% if (j.completion) { %>
+                                <%= j.completion.accepted %>/<%= j.completion.total %>
+                            <% } else { %>
+                                &mdash;
+                            <% } %>
+                        </td>
                         <td>
                             <span class="badge <%= j.status === 'completed' ? 'badge-success' : j.status === 'running' ? 'badge-info' : j.status === 'failed' ? 'badge-danger' : 'badge-warning' %>"><%= j.status %></span>
                         </td>
                         <td style="color:var(--text-muted);font-size:13px;"><%= new Date(j.created_at).toLocaleDateString('en-GB') %></td>
                         <td style="white-space:nowrap;">
                             <a href="/admin/research/<%= j.id %>" class="btn btn-secondary btn-sm">View</a>
+                            <% if (j.status === 'pending') { %>
+                                <form action="/admin/research/<%= j.id %>/begin" method="POST" style="display:inline;">
+                                    <button type="submit" class="btn btn-primary btn-sm">Begin Research</button>
+                                </form>
+                            <% } %>
                             <% if (j.status === 'completed') { %>
                                 <a href="/admin/export/gedcom/<%= j.id %>" class="btn btn-primary btn-sm">GEDCOM</a>
                             <% } %>

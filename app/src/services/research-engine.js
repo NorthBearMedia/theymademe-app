@@ -2919,17 +2919,6 @@ class ResearchEngine {
           final_score: confidenceScore,
         };
 
-        // Update ancestor in DB
-        const existingRaw = rec.raw_data || {};
-        this.db.updateAncestorByAscNumber(this.jobId, asc, {
-          confidence_score: confidenceScore,
-          confidence_level: confidenceLevel,
-          confidence: confidenceLevel.toLowerCase(),
-          evidence_chain: sourceResult.evidenceChain,
-          verification_notes: verificationNotes,
-          raw_data: { ...existingRaw, scoring_breakdown: scoringBreakdown },
-        });
-
         // Resolve best known location for this ancestor (for child comparisons downstream)
         let resolvedPlace = rec.birth_place || '';
         if (!resolvedPlace && fetchedFacts) {
@@ -2946,6 +2935,41 @@ class ResearchEngine {
             if (fc) { resolvedPlace = fc; break; }
           }
         }
+
+        // Auto-accept if score > 50, or if customer data
+        const autoAccepted = confidenceScore > 50 ? 1 : 0;
+
+        // Detect missing info
+        const missingInfo = [];
+        const hasLocation = !!(rec.birth_place || resolvedPlace);
+        const hasBirthYear = !!(rec.birth_date);
+        const hasSourceRecords = sourceResult.points > 0;
+
+        if (!hasLocation && confidenceScore < 75) {
+          missingInfo.push({ type: 'location', message: 'Birth location unknown \u2014 adding a county would improve accuracy.' });
+        }
+        if (!hasBirthYear && confidenceScore < 75) {
+          missingInfo.push({ type: 'date', message: 'Birth year unknown \u2014 an approximate year would help.' });
+        }
+        if (!hasSourceRecords && rec.fs_person_id) {
+          missingInfo.push({ type: 'records', message: 'No source records found \u2014 may need manual lookup on Ancestry.' });
+        }
+        if (confidenceScore < 50) {
+          missingInfo.push({ type: 'confidence', message: 'Low confidence \u2014 additional details about parents or locations would help.' });
+        }
+
+        // Update ancestor in DB
+        const existingRaw = rec.raw_data || {};
+        this.db.updateAncestorByAscNumber(this.jobId, asc, {
+          confidence_score: confidenceScore,
+          confidence_level: confidenceLevel,
+          confidence: confidenceLevel.toLowerCase(),
+          evidence_chain: sourceResult.evidenceChain,
+          verification_notes: verificationNotes,
+          raw_data: { ...existingRaw, scoring_breakdown: scoringBreakdown },
+          accepted: autoAccepted,
+          missing_info: missingInfo,
+        });
 
         // Store in scored map for downstream parents
         scoredAncestors.set(asc, {
