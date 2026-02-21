@@ -9,6 +9,7 @@ services:
     volumes:
       - /opt/theymademe-app/letsencrypt:/etc/letsencrypt
       - /opt/theymademe-app/certbot-webroot:/var/www/certbot
+      - /opt/theymademe-app/selfsigned:/etc/nginx/selfsigned:ro
     depends_on:
       app:
         condition: service_healthy
