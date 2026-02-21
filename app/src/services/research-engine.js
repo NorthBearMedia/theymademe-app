@@ -984,6 +984,22 @@ class ResearchEngine {
         }
       } else if (existingFather?.fs_person_id) {
         await this.traverseParents(existingFather.fs_person_id, fatherAsc, nextGen);
+      } else if (existingFather && existingFather.confidence_level === 'Customer Data' && fatherAnchor?.givenName) {
+        // Customer Data record with no FS ID — try to enrich first, then traverse
+        const fatherInfo = {
+          givenName: fatherAnchor.givenName,
+          surname: fatherAnchor.surname || childSurname,
+          birthDate: fatherAnchor.birthDate || existingFather.birth_date || estimatedParentBirth || '',
+          birthPlace: fatherAnchor.birthPlace || existingFather.birth_place || childBirthPlace,
+          deathDate: fatherAnchor.deathDate || existingFather.death_date || '',
+        };
+        console.log(`[DirectSearch] Enriching pre-populated father (asc#${fatherAsc}): ${existingFather.name}`);
+        const fsId = await this.enrichCustomerAncestor(fatherAsc, nextGen, fatherInfo);
+        if (fsId) {
+          await this.traverseParents(fsId, fatherAsc, nextGen);
+        } else {
+          await this.searchParentsDirectly(fatherAsc, nextGen);
+        }
       } else if (existingFather) {
         // Record exists but no FS ID — still search for their parents
         await this.searchParentsDirectly(fatherAsc, nextGen);
@@ -1036,6 +1052,22 @@ class ResearchEngine {
         }
       } else if (existingMother.fs_person_id) {
         await this.traverseParents(existingMother.fs_person_id, motherAsc, nextGen);
+      } else if (existingMother && existingMother.confidence_level === 'Customer Data' && motherAnchor?.givenName) {
+        // Customer Data record with no FS ID — try to enrich first, then traverse
+        const motherInfo = {
+          givenName: motherAnchor.givenName,
+          surname: motherAnchor.surname || '',
+          birthDate: motherAnchor.birthDate || existingMother.birth_date || estimatedParentBirth || '',
+          birthPlace: motherAnchor.birthPlace || existingMother.birth_place || childBirthPlace,
+          deathDate: motherAnchor.deathDate || existingMother.death_date || '',
+        };
+        console.log(`[DirectSearch] Enriching pre-populated mother (asc#${motherAsc}): ${existingMother.name}`);
+        const fsId = await this.enrichCustomerAncestor(motherAsc, nextGen, motherInfo);
+        if (fsId) {
+          await this.traverseParents(fsId, motherAsc, nextGen);
+        } else {
+          await this.searchParentsDirectly(motherAsc, nextGen);
+        }
       } else {
         // Record exists but no FS ID — still search for their parents
         await this.searchParentsDirectly(motherAsc, nextGen);
@@ -1245,18 +1277,31 @@ class ResearchEngine {
           await this.traverseParents(fResult.personId, fatherAsc, nextGen);
         }
       } else if (existingFather.confidence_level === 'Customer Data') {
-        // Update pre-populated record with FS data
-        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, fatherKnown);
-        if (fResult.verified && fResult.personId) {
-          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+        // Customer Data — enrich (preserve 100% confidence), don't verify
+        if (!existingFather.fs_person_id) {
+          console.log(`[Traverse] Customer Data at asc#${fatherAsc} — enriching, not overwriting`);
+          const fsId = await this.enrichCustomerAncestor(fatherAsc, nextGen, fatherKnown);
+          if (fsId) {
+            await this.traverseParents(fsId, fatherAsc, nextGen);
+          }
+        } else {
+          await this.traverseParents(existingFather.fs_person_id, fatherAsc, nextGen);
         }
       }
     } else if (this.knownAnchors[fatherAsc] && nextGen <= this.generations) {
       const anchorInfo = this.knownAnchors[fatherAsc];
       if (anchorInfo.givenName || anchorInfo.surname) {
-        const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, anchorInfo);
-        if (fResult.verified && fResult.personId) {
-          await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+        const existingFather = this.db.getAncestorByAscNumber(this.jobId, fatherAsc);
+        if (existingFather?.confidence_level === 'Customer Data' && !existingFather.fs_person_id) {
+          const fsId = await this.enrichCustomerAncestor(fatherAsc, nextGen, anchorInfo);
+          if (fsId) await this.traverseParents(fsId, fatherAsc, nextGen);
+        } else if (!existingFather) {
+          const fResult = await this.verifyAndUpdate(fatherAsc, nextGen, anchorInfo);
+          if (fResult.verified && fResult.personId) {
+            await this.traverseParents(fResult.personId, fatherAsc, nextGen);
+          }
+        } else if (existingFather?.fs_person_id) {
+          await this.traverseParents(existingFather.fs_person_id, fatherAsc, nextGen);
         }
       }
     }
@@ -1272,17 +1317,31 @@ class ResearchEngine {
           await this.traverseParents(mResult.personId, motherAsc, nextGen);
         }
       } else if (existingMother.confidence_level === 'Customer Data') {
-        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, motherKnown);
-        if (mResult.verified && mResult.personId) {
-          await this.traverseParents(mResult.personId, motherAsc, nextGen);
+        // Customer Data — enrich (preserve 100% confidence), don't verify
+        if (!existingMother.fs_person_id) {
+          console.log(`[Traverse] Customer Data at asc#${motherAsc} — enriching, not overwriting`);
+          const fsId = await this.enrichCustomerAncestor(motherAsc, nextGen, motherKnown);
+          if (fsId) {
+            await this.traverseParents(fsId, motherAsc, nextGen);
+          }
+        } else {
+          await this.traverseParents(existingMother.fs_person_id, motherAsc, nextGen);
         }
       }
     } else if (this.knownAnchors[motherAsc] && nextGen <= this.generations) {
       const anchorInfo = this.knownAnchors[motherAsc];
       if (anchorInfo.givenName || anchorInfo.surname) {
-        const mResult = await this.verifyAndUpdate(motherAsc, nextGen, anchorInfo);
-        if (mResult.verified && mResult.personId) {
-          await this.traverseParents(mResult.personId, motherAsc, nextGen);
+        const existingMother = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+        if (existingMother?.confidence_level === 'Customer Data' && !existingMother.fs_person_id) {
+          const fsId = await this.enrichCustomerAncestor(motherAsc, nextGen, anchorInfo);
+          if (fsId) await this.traverseParents(fsId, motherAsc, nextGen);
+        } else if (!existingMother) {
+          const mResult = await this.verifyAndUpdate(motherAsc, nextGen, anchorInfo);
+          if (mResult.verified && mResult.personId) {
+            await this.traverseParents(mResult.personId, motherAsc, nextGen);
+          }
+        } else if (existingMother?.fs_person_id) {
+          await this.traverseParents(existingMother.fs_person_id, motherAsc, nextGen);
         }
       }
     }
@@ -1322,7 +1381,14 @@ class ResearchEngine {
   storeOrUpdateAncestor(ascNumber, generation, data) {
     const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
     if (existing) {
-      // Update existing record (e.g., pre-populated customer data → verified FS data)
+      // NEVER overwrite Customer Data with a lower-confidence result.
+      // Customer-provided data is always authoritative. Only enrichCustomerAncestor
+      // (which preserves 100% confidence) should touch these records.
+      if (existing.confidence_level === 'Customer Data' && data.confidence_level !== 'Customer Data') {
+        console.log(`[Engine] asc#${ascNumber}: PROTECTED — not overwriting Customer Data (${existing.name}) with ${data.confidence_level || 'engine'} result (${data.name || '?'})`);
+        return;
+      }
+      // Update existing record
       // updateAncestorByAscNumber handles JSON serialization for objects/arrays
       this.db.updateAncestorByAscNumber(this.jobId, ascNumber, data);
     } else {
