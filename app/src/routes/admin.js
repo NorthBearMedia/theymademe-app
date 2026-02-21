@@ -22,7 +22,13 @@ router.post('/login', async (req, res) => {
       const match = await bcrypt.compare(password, config.ADMIN_PASSWORD_HASH);
       if (match) {
         req.session.isAdmin = true;
-        return res.redirect('/admin');
+        // Explicitly save session before redirecting — ensures cookie is set
+        return req.session.save((err) => {
+          if (err) console.error('[LOGIN] Session save error:', err);
+          console.log(`[LOGIN] Success. SID: ${req.sessionID?.substring(0,12)} | Set-Cookie will be sent`);
+          // Use JavaScript redirect instead of 302 — gives browser time to store the cookie
+          res.send(`<html><head><meta http-equiv="refresh" content="0;url=/admin"></head><body><p>Logging in...</p><script>document.cookie && window.location.replace('/admin');</script></body></html>`);
+        });
       }
     } catch (err) {
       console.error('bcrypt compare error:', err.message);
