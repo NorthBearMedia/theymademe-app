@@ -2184,7 +2184,93 @@ class ResearchEngine {
     };
   }
 
+  // ─── Confirm an ancestor with FreeBMD civil records ────────────────
+  // Given a person from FS tree traversal, try to confirm with FreeBMD.
+  // Returns evidence chain entries and a confidence boost.
+
+  async confirmWithFreeBMD(name, birthYear, birthPlace, deathYear, ascNumber) {
+    const evidenceChain = [];
+    const notes = [];
+    if (!this.freebmdSource) return { evidenceChain, notes, bonusScore: 0 };
+
+    const nameParts = parseNameParts(name);
+    if (!nameParts.surname) return { evidenceChain, notes, bonusScore: 0 };
+
+    let bonusScore = 0;
+    const district = this.extractDistrict(birthPlace);
+
+    // Confirm birth
+    if (birthYear && birthYear >= 1837 && birthYear <= 1983) {
+      try {
+        const results = await this.freebmdSource.searchBirths(
+          nameParts.surname, nameParts.givenName || '', birthYear - 2, birthYear + 2, district
+        );
+        // Find best match
+        let bestBirth = null;
+        let bestScore = 0;
+        for (const entry of results) {
+          let score = 0;
+          if (this.namesSimilar(entry.forenames, nameParts.givenName)) score += 30;
+          if (entry.year === birthYear) score += 20;
+          else if (Math.abs(entry.year - birthYear) <= 1) score += 15;
+          if (district && entry.district) {
+            if (entry.district.toLowerCase() === district.toLowerCase()) score += 15;
+            else if (districtMatches(district, entry.district)) score += 10;
+          }
+          if (score > bestScore) { bestScore = score; bestBirth = entry; }
+        }
+        if (bestBirth && bestScore >= 40) {
+          evidenceChain.push({
+            record_type: 'birth', source: 'FreeBMD', is_independent: true,
+            year: bestBirth.year, quarter: bestBirth.quarter, district: bestBirth.district,
+            volume: bestBirth.volume, page: bestBirth.page,
+            details: `Birth: ${bestBirth.forenames} ${bestBirth.surname}, Q${bestBirth.quarter} ${bestBirth.year}, ${bestBirth.district}`,
+            parent_mother_maiden: bestBirth.spouseSurname || '',
+            supports: ['identity'], weight: 25,
+          });
+          bonusScore += 15;
+          notes.push(`Birth confirmed: vol.${bestBirth.volume} p.${bestBirth.page}`);
+          console.log(`[FreeBMD] asc#${ascNumber}: Birth confirmed — ${bestBirth.forenames} ${bestBirth.surname} Q${bestBirth.quarter} ${bestBirth.year} ${bestBirth.district}`);
+        }
+      } catch (err) {
+        console.log(`[FreeBMD] asc#${ascNumber}: Birth search error: ${err.message}`);
+      }
+    }
+
+    // Confirm death
+    if (deathYear && deathYear >= 1837 && deathYear <= 1983) {
+      try {
+        const deathResult = await this.freebmdSource.confirmDeath(
+          nameParts.givenName?.split(' ')[0] || '', nameParts.surname, deathYear
+        );
+        if (deathResult) {
+          evidenceChain.push({
+            record_type: 'death', source: 'FreeBMD', is_independent: true,
+            year: deathResult.year, quarter: deathResult.quarter, district: deathResult.district,
+            volume: deathResult.volume, page: deathResult.page,
+            details: `Death: ${nameParts.givenName || ''} ${nameParts.surname}, Q${deathResult.quarter} ${deathResult.year}, ${deathResult.district}`,
+            supports: ['identity'], weight: 10,
+          });
+          bonusScore += 10;
+          notes.push(`Death confirmed: Q${deathResult.quarter} ${deathResult.year}`);
+          console.log(`[FreeBMD] asc#${ascNumber}: Death confirmed — ${deathResult.year}`);
+        }
+      } catch (err) {
+        console.log(`[FreeBMD] asc#${ascNumber}: Death search error: ${err.message}`);
+      }
+    }
+
+    return { evidenceChain, notes, bonusScore };
+  }
+
   // ─── Main Run Method ──────────────────────────────────────────────
+  //
+  // Strategy: FamilySearch as PRIMARY, FreeBMD as CONFIRMATION.
+  // 1. Find subject in FS → get FS person ID
+  // 2. Call getAncestry() to walk the tree in one call
+  // 3. Store each FS ancestor, confirm with FreeBMD civil records
+  // 4. For ancestors FS doesn't have, fall back to FreeBMD discovery
+  //
 
   async run() {
     try {
@@ -2193,325 +2279,289 @@ class ResearchEngine {
       this.buildAnchors();
 
       const totalPossible = Math.pow(2, this.generations + 1) - 1;
-      this.db.updateJobProgress(this.jobId, 'Starting evidence-based research...', 0, totalPossible);
+      this.db.updateJobProgress(this.jobId, 'Starting research...', 0, totalPossible);
 
       console.log(`\n[Engine] ════════════════════════════════════════════════`);
-      console.log(`[Engine] Evidence-Based Research Engine — ${this.generations} generations`);
+      console.log(`[Engine] FS-Primary Engine — ${this.generations} generations`);
       console.log(`[Engine] Subject: ${this.inputData.given_name} ${this.inputData.surname}`);
-      console.log(`[Engine] FreeBMD: ${!!this.freebmdSource}, FamilySearch: ${!!this.fsSource}`);
+      console.log(`[Engine] FamilySearch: ${!!this.fsSource}, FreeBMD: ${!!this.freebmdSource}`);
       console.log(`[Engine] ════════════════════════════════════════════════\n`);
 
-      // ── Phase 1: Enrich customer-provided data (asc#1-7) with FS links ──
-      // We do NOT re-prove customer ancestors. We only link them to FS IDs
-      // for tree traversal leads, and optionally confirm births.
+      // ── Phase 1: Find subject in FamilySearch ──
 
       const subjectBirthYear = normalizeDate(this.inputData.birth_date)?.year;
+      this.db.updateJobProgress(this.jobId, 'Searching FamilySearch for subject...', 0, totalPossible);
 
-      const subjectInfo = {
-        givenName: this.inputData.given_name,
-        surname: this.inputData.surname,
-        birthYear: subjectBirthYear,
-        birthDate: this.inputData.birth_date,
-        birthPlace: this.inputData.birth_place,
-        deathDate: this.inputData.death_date || '',
-        deathPlace: this.inputData.death_place || '',
-      };
-      if (this.inputData.father_name) {
-        const fp = parseNameParts(this.inputData.father_name);
-        subjectInfo.fatherGivenName = fp.givenName;
-        subjectInfo.fatherSurname = fp.surname;
-      }
-      if (this.inputData.mother_name) {
-        const mp = parseNameParts(this.inputData.mother_name);
-        subjectInfo.motherGivenName = mp.givenName;
-        subjectInfo.motherSurname = mp.surname;
-      }
-
-      // Enrich subject
-      await this.enrichCustomerAncestor(1, 0, subjectInfo);
-
-      // Enrich father
-      if (this.knownAnchors[2]) {
-        const fatherRec = this.db.getAncestorByAscNumber(this.jobId, 2);
-        const fatherInfo = {
-          givenName: this.knownAnchors[2].givenName || '',
-          surname: this.knownAnchors[2].surname || this.inputData.surname,
-          birthYear: fatherRec ? normalizeDate(fatherRec.birth_date)?.year : (subjectBirthYear ? subjectBirthYear - 28 : null),
-          birthPlace: fatherRec?.birth_place || subjectInfo.birthPlace,
-          fatherGivenName: '',
-          fatherSurname: this.knownAnchors[2].surname || this.inputData.surname,
+      let subjectFsId = null;
+      if (this.fsSource) {
+        const query = {
+          givenName: this.inputData.given_name || '',
+          surname: this.inputData.surname || '',
+          birthDate: this.inputData.birth_date || '',
+          birthPlace: this.inputData.birth_place || '',
+          count: 5,
         };
-        await this.enrichCustomerAncestor(2, 1, fatherInfo);
-      }
-
-      // Enrich mother
-      if (this.knownAnchors[3]) {
-        const motherRec = this.db.getAncestorByAscNumber(this.jobId, 3);
-        const motherInfo = {
-          givenName: this.knownAnchors[3].givenName || '',
-          surname: this.knownAnchors[3].surname || '',
-          birthYear: motherRec ? normalizeDate(motherRec.birth_date)?.year : (subjectBirthYear ? subjectBirthYear - 25 : null),
-          birthPlace: motherRec?.birth_place || subjectInfo.birthPlace,
-        };
-        await this.enrichCustomerAncestor(3, 1, motherInfo);
-      }
-
-      // Enrich grandparents
-      for (const asc of [4, 5, 6, 7]) {
-        if (this.knownAnchors[asc]) {
-          const anchor = this.knownAnchors[asc];
-          const grandRec = this.db.getAncestorByAscNumber(this.jobId, asc);
-          const parentAsc = Math.floor(asc / 2);
-          const parentRec = this.db.getAncestorByAscNumber(this.jobId, parentAsc);
-          const parentBirthYear = parentRec ? normalizeDate(parentRec.birth_date)?.year : null;
-
-          const info = {
-            givenName: anchor.givenName || '',
-            surname: anchor.surname || '',
-            birthYear: grandRec ? normalizeDate(grandRec.birth_date)?.year : (parentBirthYear ? parentBirthYear - 28 : null),
-            birthPlace: grandRec?.birth_place || anchor.birthPlace || parentRec?.birth_place || subjectInfo.birthPlace || '',
-          };
-          await this.enrichCustomerAncestor(asc, 2, info);
+        if (this.inputData.father_name) {
+          const fp = parseNameParts(this.inputData.father_name);
+          query.fatherGivenName = fp.givenName;
+          query.fatherSurname = fp.surname;
         }
-      }
-
-      // ── Phase 2: Search marriages between known couples ──
-      // For each pair of customer-provided spouses, search for their marriage.
-      // This gives us the bride's maiden surname = the key to the next generation.
-
-      console.log(`\n[Engine] ── Phase 2: Couple Marriages (known pairs) ──\n`);
-
-      // Known couples from customer data:
-      // asc#2 (father) × asc#3 (mother) — parents of subject
-      // asc#4 × asc#5 — paternal grandparents
-      // asc#6 × asc#7 — maternal grandparents
-
-      const coupleResults = {};
-      const couples = [
-        [2, 3],   // father × mother
-        [4, 5],   // paternal grandfather × grandmother
-        [6, 7],   // maternal grandfather × grandmother
-      ];
-
-      for (const [husbandAsc, wifeAsc] of couples) {
-        const husband = this.db.getAncestorByAscNumber(this.jobId, husbandAsc);
-        const wife = this.db.getAncestorByAscNumber(this.jobId, wifeAsc);
-        if (husband && wife) {
-          const gen = husband.generation || Math.floor(Math.log2(husbandAsc));
-          const result = await this.searchCoupleMarriage(husbandAsc, wifeAsc, gen);
-          if (result) {
-            coupleResults[`${husbandAsc}x${wifeAsc}`] = result;
-          }
-        }
-      }
-
-      // ── Phase 3: Advance from known grandparents to great-grandparents ──
-      // For each grandparent couple (asc#4×5, asc#6×7), we now know the wife's maiden
-      // surname from the marriage search. Use that to find their parents (gen 3+).
-
-      console.log(`\n[Engine] ── Phase 3: Discover unknown ancestors ──\n`);
-
-      const queue = [];
-      const processed = new Set();
-
-      // Mark all customer-provided ancestors as processed (asc#1-7)
-      for (let i = 1; i <= 7; i++) {
-        processed.add(i);
-        this.processedCount++;
-      }
-
-      // For each known grandparent, build parent search info and queue their parents
-      for (const asc of [4, 5, 6, 7]) {
-        const ancestor = this.db.getAncestorByAscNumber(this.jobId, asc);
-        if (!ancestor) continue;
-
-        const fatherAsc = asc * 2;
-        const motherAsc = asc * 2 + 1;
-        const nextGen = (ancestor.generation || 2) + 1;
-        if (nextGen > this.generations) continue;
-
-        const ap = parseNameParts(ancestor.name);
-        const birthYear = normalizeDate(ancestor.birth_date)?.year;
-        const birthPlace = ancestor.birth_place || '';
-
-        // Get FS person data for parent names
-        let fatherName = '', motherName = '', motherMaidenSurname = '';
-        if (ancestor.fs_person_id && this.fsSource) {
-          try {
-            const parents = await fsApi.getParents(ancestor.fs_person_id);
-            if (parents.father) {
-              fatherName = parents.father.name || '';
-              console.log(`[Engine] asc#${asc}: FS tree father lead → ${fatherName}`);
-            }
-            if (parents.mother) {
-              motherName = parents.mother.name || '';
-              console.log(`[Engine] asc#${asc}: FS tree mother lead → ${motherName}`);
-            }
-          } catch (err) {
-            console.log(`[Engine] asc#${asc}: FS parent lookup error: ${err.message}`);
-          }
+        if (this.inputData.mother_name) {
+          const mp = parseNameParts(this.inputData.mother_name);
+          query.motherGivenName = mp.givenName;
+          query.motherSurname = mp.surname;
         }
 
-        // Get marriage info for this couple — the wife's maiden surname
-        // asc#4's wife is asc#5, asc#6's wife is asc#7
-        if (asc % 2 === 0) {
-          const coupleKey = `${asc}x${asc + 1}`;
-          const marriage = coupleResults[coupleKey];
-          if (marriage) {
-            // The bride's maiden surname is the mother's (wife's) birth surname
-            // which gives us THEIR father's surname
-            const wifeRec = this.db.getAncestorByAscNumber(this.jobId, asc + 1);
-            if (wifeRec) {
-              motherMaidenSurname = parseNameParts(wifeRec.name).surname || '';
+        try {
+          const results = await this.fsSource.searchPerson(query);
+          console.log(`[Engine] FS search returned ${results.length} candidates for subject`);
+
+          for (const candidate of results) {
+            const place = sanitizePlaceName(candidate.birthPlace || '');
+            if (isNonUkPlace(place) && !isUkPlace(place)) continue;
+            if (this.rejectedFsIds.has(candidate.id)) continue;
+
+            // Basic sanity: name + date roughly match
+            if (this.namesSimilar(candidate.name?.split(' ')[0], this.inputData.given_name)) {
+              const candYear = normalizeDate(candidate.birthDate)?.year;
+              if (!candYear || !subjectBirthYear || Math.abs(candYear - subjectBirthYear) <= 5) {
+                subjectFsId = candidate.id;
+                console.log(`[Engine] Subject matched: ${candidate.name} (${candidate.id})`);
+                // Update subject record with FS ID
+                this.db.updateAncestorByAscNumber(this.jobId, 1, {
+                  fs_person_id: subjectFsId,
+                  verification_notes: `Customer-provided data | FS person linked: ${subjectFsId}`,
+                });
+                break;
+              }
             }
           }
-        }
-
-        // Queue father of this ancestor
-        if (fatherName || ap.surname) {
-          const fp = fatherName ? parseNameParts(fatherName) : { givenName: '', surname: ap.surname };
-          queue.push({
-            ascNumber: fatherAsc,
-            generation: nextGen,
-            personInfo: {
-              givenName: fp.givenName || '',
-              surname: fp.surname || ap.surname || '',
-              birthYear: birthYear ? birthYear - 28 : null,
-              birthPlace: birthPlace,
-              fatherSurname: fp.surname || ap.surname || '',
-              motherMaidenSurname: motherMaidenSurname,
-              fatherGivenName: '',
-              motherGivenName: motherName ? parseNameParts(motherName).givenName : '',
-            },
-          });
-        }
-
-        // Queue mother of this ancestor
-        if (motherName || motherMaidenSurname) {
-          const mp = motherName ? parseNameParts(motherName) : { givenName: '', surname: motherMaidenSurname };
-          const maidenSurname = motherMaidenSurname || mp.surname || '';
-          queue.push({
-            ascNumber: motherAsc,
-            generation: nextGen,
-            personInfo: {
-              givenName: mp.givenName || '',
-              surname: maidenSurname,
-              birthYear: birthYear ? birthYear - 25 : null,
-              birthPlace: birthPlace,
-              fatherSurname: maidenSurname,
-              motherMaidenSurname: '',
-              fatherGivenName: '',
-              motherGivenName: '',
-            },
-          });
+        } catch (err) {
+          console.log(`[Engine] FS subject search error: ${err.message}`);
         }
       }
 
-      // Also add parents of father (asc#2) and mother (asc#3) if we don't already have them
-      // from customer data (asc#4-7). This handles the case where customer provided parents
-      // but no grandparents.
-      for (const asc of [2, 3]) {
-        const ancestor = this.db.getAncestorByAscNumber(this.jobId, asc);
-        if (!ancestor) continue;
-        const fatherAsc = asc * 2;
-        const motherAsc = asc * 2 + 1;
-        // Only if grandparents aren't already customer-provided
-        if (this.db.getAncestorByAscNumber(this.jobId, fatherAsc)) continue;
+      if (!subjectFsId) {
+        console.log(`[Engine] WARNING: Subject not found in FamilySearch — will use FreeBMD-only mode`);
+      }
 
-        const ap = parseNameParts(ancestor.name);
-        const birthYear = normalizeDate(ancestor.birth_date)?.year;
-        const birthPlace = ancestor.birth_place || '';
+      // ── Phase 2: Get ancestry tree from FS in one call ──
 
-        let fatherName = '', motherName = '';
-        if (ancestor.fs_person_id && this.fsSource) {
-          try {
-            const parents = await fsApi.getParents(ancestor.fs_person_id);
-            if (parents.father) fatherName = parents.father.name || '';
-            if (parents.mother) motherName = parents.mother.name || '';
-          } catch (err) {}
-        }
+      const fsAncestors = new Map(); // asc number → FS person data
+      if (subjectFsId) {
+        this.db.updateJobProgress(this.jobId, 'Loading family tree from FamilySearch...', 1, totalPossible);
+        try {
+          const ancestry = await fsApi.getAncestry(subjectFsId, this.generations);
+          console.log(`[Engine] FS getAncestry returned ${ancestry.length} persons`);
 
-        // Get wife's maiden surname from couple marriage
-        let motherMaidenSurname = '';
-        if (asc === 2) {
-          const marriage = coupleResults['2x3'];
-          if (marriage) motherMaidenSurname = marriage.brideMaidenSurname || '';
-        }
-
-        if (fatherName || ap.surname) {
-          const fp = fatherName ? parseNameParts(fatherName) : { givenName: '', surname: ap.surname };
-          if (!processed.has(fatherAsc)) {
-            queue.push({
-              ascNumber: fatherAsc,
-              generation: 2,
-              personInfo: {
-                givenName: fp.givenName || '',
-                surname: fp.surname || ap.surname || '',
-                birthYear: birthYear ? birthYear - 28 : null,
-                birthPlace: birthPlace,
-                fatherSurname: fp.surname || ap.surname || '',
-                motherMaidenSurname: motherMaidenSurname,
-                fatherGivenName: '',
-                motherGivenName: '',
-              },
-            });
+          for (const person of ancestry) {
+            if (person.ascendancy_number != null) {
+              fsAncestors.set(person.ascendancy_number, person);
+            }
           }
-        }
-
-        if (motherName) {
-          const mp = parseNameParts(motherName);
-          if (!processed.has(motherAsc)) {
-            queue.push({
-              ascNumber: motherAsc,
-              generation: 2,
-              personInfo: {
-                givenName: mp.givenName || '',
-                surname: motherMaidenSurname || mp.surname || '',
-                birthYear: birthYear ? birthYear - 25 : null,
-                birthPlace: birthPlace,
-                fatherSurname: motherMaidenSurname || mp.surname || '',
-                motherMaidenSurname: '',
-                fatherGivenName: '',
-                motherGivenName: '',
-              },
-            });
-          }
+          console.log(`[Engine] Mapped ${fsAncestors.size} ancestors to asc numbers`);
+        } catch (err) {
+          console.log(`[Engine] FS getAncestry error: ${err.message}`);
         }
       }
 
-      // Process the queue — evidence pipeline for each unknown ancestor
-      while (queue.length > 0) {
-        const { ascNumber, generation, personInfo } = queue.shift();
+      // ── Phase 3: Store FS ancestors + confirm with FreeBMD ──
 
-        if (processed.has(ascNumber)) continue;
+      console.log(`\n[Engine] ── Phase 3: Store & Confirm Ancestors ──\n`);
+
+      const maxAsc = Math.pow(2, this.generations + 1) - 1;
+      const storedAscNumbers = new Set();
+
+      for (let asc = 1; asc <= maxAsc; asc++) {
+        const generation = Math.floor(Math.log2(asc));
         if (generation > this.generations) continue;
-        processed.add(ascNumber);
 
-        if (!personInfo.givenName && !personInfo.surname) continue;
-        if (personInfo.givenName && personInfo.givenName.includes('(not found)')) continue;
+        const existing = this.db.getAncestorByAscNumber(this.jobId, asc);
+        const fsPerson = fsAncestors.get(asc);
 
-        const result = await this.processAncestor(personInfo, ascNumber, generation);
+        // Customer data — just enrich with FS ID, don't overwrite
+        if (existing && existing.confidence_level === 'Customer Data') {
+          storedAscNumbers.add(asc);
+          this.processedCount++;
 
-        // Only advance if at least Possible
-        if (result && result.confidenceScore >= 50) {
-          const fatherAsc = ascNumber * 2;
-          const motherAsc = ascNumber * 2 + 1;
-          const nextGen = generation + 1;
-
-          if (nextGen <= this.generations) {
-            const fatherInfo = this.buildParentFromResult(result, 'father', ascNumber, nextGen);
-            if (fatherInfo && !processed.has(fatherAsc)) {
-              queue.push({ ascNumber: fatherAsc, generation: nextGen, personInfo: fatherInfo });
-            }
-
-            const motherInfo = this.buildParentFromResult(result, 'mother', ascNumber, nextGen);
-            if (motherInfo && !processed.has(motherAsc)) {
-              queue.push({ ascNumber: motherAsc, generation: nextGen, personInfo: motherInfo });
+          if (fsPerson && !existing.fs_person_id) {
+            // Link FS person to customer data
+            const fsPlace = sanitizePlaceName(fsPerson.birthPlace || '');
+            if (!isNonUkPlace(fsPlace) || isUkPlace(fsPlace)) {
+              this.db.updateAncestorByAscNumber(this.jobId, asc, {
+                fs_person_id: fsPerson.fs_person_id,
+                verification_notes: (existing.verification_notes || '') + ` | FS linked: ${fsPerson.fs_person_id}`,
+              });
+              console.log(`[Engine] asc#${asc}: Customer data linked to FS ${fsPerson.fs_person_id}`);
             }
           }
-        } else {
-          console.log(`[Engine] asc#${ascNumber}: Score too low (${result?.confidenceScore || 0}%) — NOT advancing to parents`);
+
+          // Confirm customer data with FreeBMD
+          const birthYear = normalizeDate(existing.birth_date)?.year;
+          const deathYear = normalizeDate(existing.death_date)?.year;
+          this.db.updateJobProgress(this.jobId,
+            `Confirming ${existing.name}...`, this.processedCount, totalPossible);
+
+          const { evidenceChain, notes } = await this.confirmWithFreeBMD(
+            existing.name, birthYear, existing.birth_place, deathYear, asc
+          );
+          if (evidenceChain.length > 0) {
+            const existingChain = existing.evidence_chain || [];
+            this.db.updateAncestorByAscNumber(this.jobId, asc, {
+              evidence_chain: [...existingChain, ...evidenceChain],
+              verification_notes: (existing.verification_notes || '') + ' | ' + notes.join(' | '),
+            });
+          }
+          continue;
         }
+
+        // FS found this ancestor
+        if (fsPerson) {
+          const fsPlace = sanitizePlaceName(fsPerson.birthPlace || fsPerson.deathPlace || '');
+
+          // Skip non-UK ancestors
+          if (isNonUkPlace(fsPlace) && !isUkPlace(fsPlace)) {
+            console.log(`[Engine] asc#${asc}: Skipping non-UK FS ancestor ${fsPerson.name} (${fsPlace})`);
+            continue;
+          }
+
+          storedAscNumbers.add(asc);
+          this.processedCount++;
+
+          this.db.updateJobProgress(this.jobId,
+            `Processing ${fsPerson.name}...`, this.processedCount, totalPossible);
+
+          console.log(`[Engine] asc#${asc}: FS ancestor — ${fsPerson.name}, b.${fsPerson.birthDate} ${fsPerson.birthPlace}`);
+
+          // Build evidence chain — FS tree is a LEAD, not evidence
+          const evidenceChain = [{
+            record_type: 'fs_tree_lead', source: 'FamilySearch', is_independent: false,
+            details: `FS tree: ${fsPerson.name} (${fsPerson.fs_person_id})`,
+            supports: ['identity'], weight: 10,
+          }];
+
+          // Confirm with FreeBMD
+          const birthYear = normalizeDate(fsPerson.birthDate)?.year;
+          const deathYear = normalizeDate(fsPerson.deathDate)?.year;
+          const bmdResult = await this.confirmWithFreeBMD(
+            fsPerson.name, birthYear, fsPerson.birthPlace, deathYear, asc
+          );
+          evidenceChain.push(...bmdResult.evidenceChain);
+
+          // Calculate confidence
+          const independentCount = evidenceChain.filter(e => e.is_independent).length;
+          const totalWeight = evidenceChain.reduce((s, e) => s + (e.weight || 0), 0);
+          let confidenceScore;
+          if (independentCount >= 2) {
+            confidenceScore = Math.min(89, 75 + Math.min(14, totalWeight - 30));
+          } else if (independentCount >= 1) {
+            confidenceScore = Math.min(74, 55 + Math.min(19, totalWeight - 15));
+          } else {
+            // FS tree only — Flagged
+            confidenceScore = Math.min(49, 35 + Math.min(14, totalWeight));
+          }
+          const confidenceLevel = this.getConfidenceLevel(confidenceScore);
+
+          const verificationNotes = [
+            'FS tree lead',
+            ...bmdResult.notes,
+            `Evidence weight: ${totalWeight}, Independent: ${independentCount}`,
+          ].join(' | ');
+
+          this.storeOrUpdateAncestor(asc, generation, {
+            fs_person_id: fsPerson.fs_person_id,
+            name: fsPerson.name,
+            gender: fsPerson.gender || this.getExpectedGender(asc) || 'Unknown',
+            birth_date: fsPerson.birthDate || '',
+            birth_place: sanitizePlaceName(fsPerson.birthPlace || ''),
+            death_date: fsPerson.deathDate || '',
+            death_place: sanitizePlaceName(fsPerson.deathPlace || ''),
+            confidence: confidenceLevel.toLowerCase(),
+            sources: evidenceChain.map(e => e.source).filter((v, i, a) => a.indexOf(v) === i),
+            raw_data: { fsPerson, bmdResult: bmdResult.notes },
+            confidence_score: confidenceScore,
+            confidence_level: confidenceLevel,
+            evidence_chain: evidenceChain,
+            search_log: [],
+            conflicts: [],
+            verification_notes: verificationNotes,
+          });
+
+          console.log(`[Engine] asc#${asc}: ${fsPerson.name} — ${confidenceLevel} ${confidenceScore}%`);
+          continue;
+        }
+
+        // No FS ancestor for this position — will try FreeBMD discovery in Phase 4
+      }
+
+      // ── Phase 4: FreeBMD discovery for gaps in FS tree ──
+      // For positions where FS had no data, try the evidence pipeline
+
+      console.log(`\n[Engine] ── Phase 4: FreeBMD Discovery for Gaps ──\n`);
+
+      for (let asc = 8; asc <= maxAsc; asc++) {
+        const generation = Math.floor(Math.log2(asc));
+        if (generation > this.generations) continue;
+        if (storedAscNumbers.has(asc)) continue;
+
+        // We need parent info to know who to search for
+        const parentAsc = Math.floor(asc / 2);
+        const parentRec = this.db.getAncestorByAscNumber(this.jobId, parentAsc);
+        if (!parentRec || !parentRec.fs_person_id) continue;
+
+        // Try to get parent names from FS
+        const isFather = asc % 2 === 0;
+        let personInfo = null;
+
+        try {
+          const parents = await fsApi.getParents(parentRec.fs_person_id);
+          const parent = isFather ? parents.father : parents.mother;
+          if (parent && parent.name) {
+            const pp = parseNameParts(parent.name);
+            const parentBirthYear = normalizeDate(parentRec.birth_date)?.year;
+            personInfo = {
+              givenName: pp.givenName || '',
+              surname: pp.surname || '',
+              birthYear: parentBirthYear ? parentBirthYear - (isFather ? 28 : 25) : null,
+              birthPlace: parentRec.birth_place || '',
+              fatherSurname: pp.surname || '',
+              motherMaidenSurname: '',
+            };
+          }
+        } catch (err) {
+          // FS parent lookup failed — skip
+        }
+
+        if (!personInfo) continue;
+        if (!personInfo.givenName && !personInfo.surname) continue;
+
+        // Run evidence pipeline (FreeBMD discovery)
+        storedAscNumbers.add(asc);
+        const result = await this.processAncestor(personInfo, asc, generation);
+      }
+
+      // ── Phase 5: Marriage confirmation for known couples ──
+      // Search FreeBMD marriages for each pair to add marriage evidence
+
+      console.log(`\n[Engine] ── Phase 5: Marriage Confirmations ──\n`);
+
+      // Build couples list from stored ancestors
+      for (let asc = 2; asc <= maxAsc; asc += 2) {
+        const husband = this.db.getAncestorByAscNumber(this.jobId, asc);
+        const wife = this.db.getAncestorByAscNumber(this.jobId, asc + 1);
+        if (!husband || !wife) continue;
+        if (husband.confidence_level === 'Not Found' || wife.confidence_level === 'Not Found') continue;
+
+        // Skip if already have marriage evidence
+        const hChain = husband.evidence_chain || [];
+        if (hChain.some(e => e.record_type === 'marriage')) continue;
+
+        const gen = Math.floor(Math.log2(asc));
+        this.db.updateJobProgress(this.jobId,
+          `Searching marriage: ${parseNameParts(husband.name).surname || '?'} × ${parseNameParts(wife.name).surname || '?'}...`,
+          this.processedCount, totalPossible);
+
+        await this.searchCoupleMarriage(asc, asc + 1, gen);
       }
 
       // ── Complete ──
