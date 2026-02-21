@@ -68,7 +68,10 @@ function normalizeName(str) {
 
 function parseNameParts(fullName) {
   if (!fullName) return { givenName: '', surname: '' };
-  const parts = fullName.trim().split(/\s+/);
+  // Strip "(not found)" marker before parsing — prevents extracting "found)" as surname
+  const cleaned = fullName.replace(/\s*\(not found\)\s*$/i, '').trim();
+  if (!cleaned || cleaned.toLowerCase() === 'unknown') return { givenName: '', surname: '' };
+  const parts = cleaned.split(/\s+/);
   if (parts.length === 1) return { givenName: parts[0], surname: '' };
   const surname = parts.pop();
   return { givenName: parts.join(' '), surname };
@@ -223,11 +226,40 @@ function placeSpecificityScore(candidatePlace, knownPlace) {
 
 // Sanitize FamilySearch place names — strip non-Latin scripts (Cyrillic, Old English, etc.)
 // and clean up resulting artifacts (extra commas, spaces)
+// FamilySearch returns place names in the user's locale (Mongolian, Cyrillic, etc.)
+// We must translate country/region names BEFORE stripping non-Latin to preserve geographic signals.
+const NON_LATIN_PLACE_MAP = {
+  // Mongolian (FamilySearch's Mongolian locale translations)
+  'Англи': 'England', 'Нэгдсэн Вант Улс': 'United Kingdom',
+  'Америкийн Нэгдсэн Улс': 'United States', 'Шотланд': 'Scotland',
+  'Уэльс': 'Wales', 'Ирланд': 'Ireland',
+  'Laustralän': 'Australia', 'Норвеги': 'Norway',
+  'Канад': 'Canada', 'Франц': 'France', 'Герман': 'Germany',
+  // Mongolian US states
+  'Оригон': 'Oregon', 'Огайо': 'Ohio', 'Индиана': 'Indiana',
+  'Нью-Йорк': 'New York', 'Калифорни': 'California',
+  'Иллинойс': 'Illinois', 'Мичиган': 'Michigan', 'Техас': 'Texas',
+  'Флорида': 'Florida', 'Пенсильвани': 'Pennsylvania',
+  'Виржиниа': 'Virginia', 'Массачусетс': 'Massachusetts',
+  // Cyrillic / Russian
+  'Англия': 'England', 'Великобритания': 'United Kingdom',
+  'Соединённые Штаты': 'United States', 'Шотландия': 'Scotland',
+  'Уэлс': 'Wales', 'Ирландия': 'Ireland',
+  'Австралия': 'Australia', 'Канада': 'Canada',
+  'Норвегия': 'Norway', 'Франция': 'France', 'Германия': 'Germany',
+};
+
 function sanitizePlaceName(place) {
   if (!place) return '';
-  // Strip characters outside Basic Latin, Latin Extended, and common punctuation
-  // This removes Cyrillic (U+0400-04FF), Mongolian, Old English runes, etc.
-  let cleaned = place
+  // Step 1: Translate known non-Latin place/country names BEFORE stripping
+  let translated = place;
+  for (const [nonLatin, english] of Object.entries(NON_LATIN_PLACE_MAP)) {
+    if (translated.includes(nonLatin)) {
+      translated = translated.replace(new RegExp(nonLatin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), english);
+    }
+  }
+  // Step 2: Strip remaining non-Latin characters
+  let cleaned = translated
     .replace(/[^\u0000-\u024F\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\s,.\-'()0-9]/g, '')
     .replace(/,\s*,/g, ',')       // collapse double commas
     .replace(/,\s*$/g, '')         // trailing comma
@@ -253,6 +285,16 @@ function sanitizePlaceName(place) {
     'hēortfordscīr': 'Hertfordshire',
     'buccingahamscīr': 'Buckinghamshire',
     'ēastseaxe': 'Essex',
+    'eoferwic': 'Yorkshire',
+    'eoferwicscir': 'Yorkshire',
+    'lindesig': 'Lincolnshire',
+    'snotingahamscir': 'Nottinghamshire',
+    'ligracesterscir': 'Leicestershire',
+    'scrobbesbyrigscir': 'Shropshire',
+    'wigraceasterscir': 'Worcestershire',
+    'warewickscir': 'Warwickshire',
+    'grantabrycgscir': 'Cambridgeshire',
+    'huntandunscir': 'Huntingdonshire',
     'norþhymbra land': 'Northumberland',
     'westmoringaland': 'Westmorland',
   };
@@ -988,6 +1030,9 @@ class ResearchEngine {
 
     const childRecord = this.db.getAncestorByAscNumber(this.jobId, fromAsc);
     if (!childRecord) return;
+
+    // Don't search for parents of ancestors we never identified
+    if (childRecord.name && childRecord.name.includes('(not found)')) return;
 
     const childBirth = normalizeDate(childRecord.birth_date);
     const estimatedParentBirth = childBirth?.year ? String(childBirth.year - 28) : null;
@@ -2002,6 +2047,11 @@ class ResearchEngine {
   }
 
   evaluateCandidate(candidate, knownInfo, expectedGender) {
+    // Sanitize candidate place names — FS returns Mongolian/Cyrillic/Old English scripts
+    // that break all downstream place matching. Clean them once, up front.
+    if (candidate.birthPlace) candidate.birthPlace = sanitizePlaceName(candidate.birthPlace);
+    if (candidate.deathPlace) candidate.deathPlace = sanitizePlaceName(candidate.deathPlace);
+
     let score = 0;
     let penalties = 0;
     const hasParentInfo = !!(knownInfo.fatherGivenName || knownInfo.motherGivenName);
