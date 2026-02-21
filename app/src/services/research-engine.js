@@ -584,6 +584,7 @@ class ResearchEngine {
     this.maxAncestors = Math.pow(2, generations + 1) - 2;
     this.knownAnchors = {};
     this.rejectedFsIds = new Set(db.getRejectedFsIds(jobId));
+    this.freebmdFailCount = 0;
 
     // Categorize sources
     this.sources = sources || [];
@@ -1991,6 +1992,11 @@ class ResearchEngine {
   // The marriage is evidence, and it links the couple, enabling us to advance to THEIR parents.
 
   async searchCoupleMarriage(husbandAsc, wifeAsc, generation) {
+    if (this.freebmdFailCount >= 3) {
+      console.log(`[FreeBMD] Marriage search skipped — too many failures`);
+      return null;
+    }
+
     const husband = this.db.getAncestorByAscNumber(this.jobId, husbandAsc);
     const wife = this.db.getAncestorByAscNumber(this.jobId, wifeAsc);
 
@@ -2193,6 +2199,12 @@ class ResearchEngine {
     const notes = [];
     if (!this.freebmdSource) return { evidenceChain, notes, bonusScore: 0 };
 
+    // Skip FreeBMD if too many consecutive failures (rate limiting)
+    if (this.freebmdFailCount >= 3) {
+      console.log(`[FreeBMD] asc#${ascNumber}: Skipping — too many recent failures (${this.freebmdFailCount})`);
+      return { evidenceChain, notes, bonusScore: 0 };
+    }
+
     const nameParts = parseNameParts(name);
     if (!nameParts.surname) return { evidenceChain, notes, bonusScore: 0 };
 
@@ -2231,9 +2243,11 @@ class ResearchEngine {
           bonusScore += 15;
           notes.push(`Birth confirmed: vol.${bestBirth.volume} p.${bestBirth.page}`);
           console.log(`[FreeBMD] asc#${ascNumber}: Birth confirmed — ${bestBirth.forenames} ${bestBirth.surname} Q${bestBirth.quarter} ${bestBirth.year} ${bestBirth.district}`);
+          this.freebmdFailCount = 0; // reset on success
         }
       } catch (err) {
         console.log(`[FreeBMD] asc#${ascNumber}: Birth search error: ${err.message}`);
+        this.freebmdFailCount = (this.freebmdFailCount || 0) + 1;
       }
     }
 
@@ -2254,9 +2268,11 @@ class ResearchEngine {
           bonusScore += 10;
           notes.push(`Death confirmed: Q${deathResult.quarter} ${deathResult.year}`);
           console.log(`[FreeBMD] asc#${ascNumber}: Death confirmed — ${deathResult.year}`);
+          this.freebmdFailCount = 0;
         }
       } catch (err) {
         console.log(`[FreeBMD] asc#${ascNumber}: Death search error: ${err.message}`);
+        this.freebmdFailCount = (this.freebmdFailCount || 0) + 1;
       }
     }
 
