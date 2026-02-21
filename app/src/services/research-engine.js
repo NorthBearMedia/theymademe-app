@@ -871,19 +871,38 @@ class ResearchEngine {
     };
     // Add FS dates/places only if customer didn't provide them
     const existing = this.db.getAncestorByAscNumber(this.jobId, ascNumber);
-    if (!existing.birth_date && best.birthDate) enrichData.birth_date = best.birthDate;
-    if (!existing.birth_place && best.birthPlace) enrichData.birth_place = sanitizePlaceName(best.birthPlace);
-    if (!existing.death_date && best.deathDate) enrichData.death_date = best.deathDate;
-    if (!existing.death_place && best.deathPlace) enrichData.death_place = sanitizePlaceName(best.deathPlace);
-    // NEVER overwrite gender from FS — it can be wrong. Gender for customer-provided
-    // ancestors should come from the form/notes or the asc number (even=Male, odd=Female).
-    // Only set gender if it's currently Unknown AND the asc number tells us definitively.
-    if (existing.gender === 'Unknown' && ascNumber > 1) {
-      enrichData.gender = ascNumber % 2 === 0 ? 'Male' : 'Female';
+    if (existing) {
+      if (!existing.birth_date && best.birthDate) enrichData.birth_date = best.birthDate;
+      if (!existing.birth_place && best.birthPlace) enrichData.birth_place = sanitizePlaceName(best.birthPlace);
+      if (!existing.death_date && best.deathDate) enrichData.death_date = best.deathDate;
+      if (!existing.death_place && best.deathPlace) enrichData.death_place = sanitizePlaceName(best.deathPlace);
+      // NEVER overwrite gender from FS — it can be wrong. Gender for customer-provided
+      // ancestors should come from the form/notes or the asc number (even=Male, odd=Female).
+      // Only set gender if it's currently Unknown AND the asc number tells us definitively.
+      if (existing.gender === 'Unknown' && ascNumber > 1) {
+        enrichData.gender = ascNumber % 2 === 0 ? 'Male' : 'Female';
+      }
+      this.db.updateAncestorByAscNumber(this.jobId, ascNumber, enrichData);
+      console.log(`[Engine] asc#${ascNumber}: enriched with FS ID ${best.id} — confidence stays at 100%`);
+    } else {
+      // No existing record — create one with FS data
+      const fullName = `${knownInfo.givenName || ''} ${knownInfo.surname || ''}`.trim();
+      const gender = ascNumber <= 1 ? 'Unknown' : (ascNumber % 2 === 0 ? 'Male' : 'Female');
+      this.storeOrUpdateAncestor(ascNumber, generation, {
+        name: fullName || best.name,
+        gender,
+        fs_person_id: best.id,
+        birth_date: best.birthDate || knownInfo.birthDate || '',
+        birth_place: best.birthPlace ? sanitizePlaceName(best.birthPlace) : (knownInfo.birthPlace || ''),
+        death_date: best.deathDate || knownInfo.deathDate || '',
+        death_place: best.deathPlace ? sanitizePlaceName(best.deathPlace) : '',
+        confidence_score: 100,
+        confidence_level: 'Customer Data',
+        verification_notes: `Customer-provided data — linked to FamilySearch person ${best.id} (match score: ${best.computedScore}/100)`,
+        search_log: searchLog,
+      });
+      console.log(`[Engine] asc#${ascNumber}: created with FS ID ${best.id} — confidence 100% Customer Data`);
     }
-
-    this.db.updateAncestorByAscNumber(this.jobId, ascNumber, enrichData);
-    console.log(`[Engine] asc#${ascNumber}: enriched with FS ID ${best.id} — confidence stays at 100%`);
 
     return best.id;
   }
