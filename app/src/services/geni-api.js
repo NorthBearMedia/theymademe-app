@@ -16,16 +16,18 @@ const geniOauth = require('./geni-oauth');
 const API_URL = config.GENI_API_URL || 'https://www.geni.com/api';
 
 // ─── Rate Limiting ───────────────────────────────────────────────────
-// Sliding window: 35 requests per 10 seconds (safety margin under 40 limit)
+// Conservative rate limiting — new/unapproved apps may have lower limits
+// Start at 10 req per 10s (1 per second) to avoid WAF/Incapsula blocks
 const RATE_WINDOW = 10000;       // 10 seconds in ms
-const RATE_MAX_REQUESTS = 35;
-const RATE_429_BACKOFF = 11000;  // 11 seconds on 429
+const RATE_MAX_REQUESTS = 10;    // conservative for unapproved apps
+const RATE_429_BACKOFF = 15000;  // 15 seconds on 429
 const RATE_MAX_RETRIES = 3;
+const MIN_REQUEST_INTERVAL = 1000; // minimum 1 second between requests
 
 const requestTimes = [];         // timestamps of recent requests
 let rateRemaining = null;        // from X-API-Rate-Remaining header
 
-function rateLimit() {
+async function rateLimit() {
   const now = Date.now();
 
   // Prune requests older than the window
@@ -33,22 +35,30 @@ function rateLimit() {
     requestTimes.shift();
   }
 
+  // Enforce minimum interval between requests
+  if (requestTimes.length > 0) {
+    const lastReq = requestTimes[requestTimes.length - 1];
+    const elapsed = now - lastReq;
+    if (elapsed < MIN_REQUEST_INTERVAL) {
+      await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL - elapsed));
+    }
+  }
+
   // If at limit, wait for oldest to expire
   if (requestTimes.length >= RATE_MAX_REQUESTS) {
     const oldest = requestTimes[0];
-    const wait = RATE_WINDOW - (now - oldest) + 100; // 100ms safety
+    const wait = RATE_WINDOW - (Date.now() - oldest) + 200; // 200ms safety
     if (wait > 0) {
-      return new Promise(r => setTimeout(r, wait));
+      await new Promise(r => setTimeout(r, wait));
     }
   }
 
   // Slow down if API says we're getting low
   if (rateRemaining !== null && rateRemaining <= 5) {
-    return new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1500));
   }
 
   requestTimes.push(Date.now());
-  return Promise.resolve();
 }
 
 function updateRateInfo(headers) {
