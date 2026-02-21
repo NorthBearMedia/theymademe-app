@@ -435,49 +435,204 @@ function isNameVariant(name1, name2) {
   return aVariants.includes(b);
 }
 
-// ─── Source Classification ───────────────────────────────────────────
+// ─── Record-Based Points Scoring System ─────────────────────────────
+// Classifies FS source records and scores ancestors based on actual
+// historical records, person facts, family context, and plausibility.
 
-function classifySource(source) {
-  const title = (source.title || '').toLowerCase();
-  const citation = (source.citation || '').toLowerCase();
-  const text = title + ' ' + citation;
+function classifySourceRecord(title) {
+  const t = (title || '').toLowerCase();
 
-  if (/\bbirth\b|\bchrist(en|in)/.test(text)) return { type: 'birth_record', weight: 25 };
-  if (/\bmarriage\b|\bmarri/.test(text)) return { type: 'marriage_record', weight: 20 };
-  if (/\bdeath\b|\bburial\b|\bprobate\b/.test(text)) return { type: 'death_record', weight: 20 };
-  if (/\bcensus\b/.test(text)) return { type: 'census', weight: 15 };
-  if (/\bparish\b|\bchurch\b|\bbaptis/.test(text)) return { type: 'parish_record', weight: 18 };
-  if (/\bmilitary\b|\barmy\b|\bnavy\b|\braf\b/.test(text)) return { type: 'military_record', weight: 10 };
-  if (/\bimmigra|\bpassenger\b|\bemigra/.test(text)) return { type: 'immigration', weight: 10 };
-  return { type: 'other', weight: 5 };
-}
-
-function scoreEvidence(sources) {
-  if (!sources || sources.length === 0) return { score: 0, evidence: [], sourceTypes: new Set() };
-
-  const evidence = [];
-  const sourceTypes = new Set();
-  let totalWeight = 0;
-
-  for (const source of sources) {
-    const { type, weight } = classifySource(source);
-    sourceTypes.add(type);
-    totalWeight += weight;
-    evidence.push({
-      source_type: type,
-      weight,
-      title: source.title,
-      url: source.url,
-      citation: source.citation,
-    });
+  // Civil Registration: birth/marriage/death AND registration/index/register/certificate, NOT parish
+  if (!t.includes('parish')) {
+    const civilIndicators = ['registration', 'index', 'register', 'certificate'];
+    if (t.includes('birth') && civilIndicators.some(ind => t.includes(ind))) {
+      return { category: 'Civil Registration', subType: 'birth', key: 'civil_birth' };
+    }
+    if (t.includes('marriage') && civilIndicators.some(ind => t.includes(ind))) {
+      return { category: 'Civil Registration', subType: 'marriage', key: 'civil_marriage' };
+    }
+    if (t.includes('death') && civilIndicators.some(ind => t.includes(ind))) {
+      return { category: 'Civil Registration', subType: 'death', key: 'civil_death' };
+    }
   }
 
-  let score = Math.min(totalWeight, 100);
+  // Census — extract year for dedup
+  if (t.includes('census')) {
+    const yearMatch = t.match(/(\d{4})/);
+    const year = yearMatch ? yearMatch[1] : 'unknown';
+    return { category: 'Census', subType: year, key: `census_${year}` };
+  }
 
-  // Bonus for multiple independent source types
-  if (sourceTypes.size >= 3) score = Math.min(score + 10, 100);
+  // 1939 Register
+  if (t.includes('1939 register') || t.includes('national register')) {
+    return { category: '1939 Register', subType: '1939', key: '1939_register' };
+  }
 
-  return { score, evidence, sourceTypes };
+  // Parish Register
+  if (t.includes('parish register') || t.includes('christening') ||
+      t.includes('baptism') || t.includes('burial') || t.includes('banns')) {
+    const yearMatch = t.match(/(\d{4})/);
+    const yearKey = yearMatch ? yearMatch[1] : '';
+    return { category: 'Parish Register', subType: 'parish', key: `parish_${yearKey}_${t.substring(0, 40)}` };
+  }
+
+  // Military
+  if (['military', 'army', 'navy', 'air force', 'war', 'medal', 'conscription'].some(w => t.includes(w))) {
+    return { category: 'Military', subType: 'military', key: `military_${t.substring(0, 40)}` };
+  }
+
+  // Probate/Will
+  if (t.includes('probate') || (t.includes('will') && (t.includes('proved') || t.includes('grant'))) || t.includes('administration')) {
+    return { category: 'Probate', subType: 'probate', key: 'probate' };
+  }
+
+  return { category: 'Other', subType: 'other', key: `other_${t.substring(0, 40)}` };
+}
+
+// Section 1: Score source records from getPersonSources()
+// Returns {points, notes[], evidenceChain[]}
+function scoreSourceRecords(sources) {
+  if (!sources || sources.length === 0) {
+    return { points: 0, notes: ['Sources: none found'], evidenceChain: [] };
+  }
+
+  // Deduplicate by title
+  const seen = new Set();
+  const unique = [];
+  for (const s of sources) {
+    const normTitle = (s.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!seen.has(normTitle)) {
+      seen.add(normTitle);
+      unique.push(s);
+    }
+  }
+
+  // Classify and deduplicate by key
+  const byKey = new Map();
+  for (const s of unique) {
+    const classification = classifySourceRecord(s.title);
+    if (!byKey.has(classification.key)) {
+      byKey.set(classification.key, { source: s, classification });
+    }
+  }
+
+  // Apply points with caps per category
+  let points = 0;
+  const noteItems = [];
+  const evidenceChain = [];
+  const categoryCounts = {};
+
+  // Points and caps per category
+  const CATEGORY_POINTS = {
+    'Civil Registration': { points: 15, maxRecords: 3 }, // one per subType (birth/marriage/death)
+    'Census': { points: 12, maxRecords: 99 }, // no cap
+    'Parish Register': { points: 10, maxRecords: 2 },
+    '1939 Register': { points: 10, maxRecords: 1 },
+    'Military': { points: 8, maxRecords: 2 },
+    'Probate': { points: 8, maxRecords: 1 },
+    'Other': { points: 3, maxRecords: 3 },
+  };
+
+  for (const [key, { source, classification }] of byKey) {
+    const cat = classification.category;
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    const config = CATEGORY_POINTS[cat] || CATEGORY_POINTS['Other'];
+
+    if (categoryCounts[cat] <= config.maxRecords) {
+      points += config.points;
+      const yearSuffix = classification.subType && classification.subType !== cat.toLowerCase() && /^\d{4}$/.test(classification.subType)
+        ? `, ${classification.subType}` : '';
+      noteItems.push(`${source.title || cat}${yearSuffix} (+${config.points})`);
+      evidenceChain.push({
+        source_type: cat,
+        title: source.title || cat,
+        url: source.url || '',
+        citation: source.citation || '',
+        weight: config.points,
+      });
+    }
+  }
+
+  const notes = noteItems.length > 0
+    ? [`Sources: ${noteItems.join(', ')}`]
+    : ['Sources: none found'];
+
+  return { points, notes, evidenceChain };
+}
+
+// Section 2: Score person facts from extractFactsByType()
+// Returns {points, notes[]}
+function scorePersonFacts(facts) {
+  if (!facts) return { points: 0, notes: ['Facts: none available'] };
+
+  let points = 0;
+  const noteItems = [];
+
+  // Birth/christening date
+  const birthFact = (facts.birth || []).find(f => f.date) || (facts.baptism || []).find(f => f.date);
+  if (birthFact && birthFact.date) {
+    points += 5;
+    noteItems.push(`birth date ${birthFact.date} (+5)`);
+  }
+
+  // Birth/christening place
+  const birthPlaceFact = (facts.birth || []).find(f => f.place) || (facts.baptism || []).find(f => f.place);
+  if (birthPlaceFact && birthPlaceFact.place) {
+    points += 5;
+    noteItems.push(`birth place ${birthPlaceFact.place} (+5)`);
+  }
+
+  // Death date (non-empty, non-placeholder)
+  const deathFact = (facts.death || []).find(f => f.date && f.date.trim().length > 0);
+  if (deathFact) {
+    points += 3;
+    noteItems.push(`death date ${deathFact.date} (+3)`);
+  }
+
+  // Death place
+  const deathPlaceFact = (facts.death || []).find(f => f.place && f.place.trim().length > 0);
+  if (deathPlaceFact) {
+    points += 3;
+    noteItems.push(`death place ${deathPlaceFact.place} (+3)`);
+  }
+
+  // Marriage fact
+  if (facts.marriage && facts.marriage.length > 0) {
+    points += 5;
+    const mf = facts.marriage[0];
+    noteItems.push(`marriage${mf.date ? ' ' + mf.date : ''}${mf.place ? ' ' + mf.place : ''} (+5)`);
+  }
+
+  // Residence facts with place, max 2
+  const resFacts = (facts.residence || []).filter(f => f.place && f.place.trim().length > 0);
+  const resCount = Math.min(resFacts.length, 2);
+  for (let i = 0; i < resCount; i++) {
+    points += 3;
+    noteItems.push(`residence ${resFacts[i].date || ''} ${resFacts[i].place || ''} (+3)`.trim());
+  }
+
+  // Census facts, max 2
+  const censusFacts = (facts.census || []).filter(f => f.date || f.place);
+  const censusCount = Math.min(censusFacts.length, 2);
+  for (let i = 0; i < censusCount; i++) {
+    points += 3;
+    noteItems.push(`census ${censusFacts[i].date || ''} ${censusFacts[i].place || ''} (+3)`.trim());
+  }
+
+  const notes = noteItems.length > 0
+    ? [`Facts: ${noteItems.join(', ')}`]
+    : ['Facts: none recorded'];
+
+  return { points: Math.min(points, 33), notes };
+}
+
+// Section 5 mapping: total points → percentage
+function computeFinalScore(points) {
+  if (points >= 55) return Math.min(95, 90 + Math.min(5, points - 55));
+  if (points >= 35) return 75 + Math.min(14, points - 35);
+  if (points >= 15) return Math.round(50 + Math.min(24, (points - 15) * 24 / 19));
+  if (points >= 5)  return Math.round(30 + Math.min(19, (points - 5) * 19 / 9));
+  return 25;
 }
 
 // ─── Notes Parser ────────────────────────────────────────────────────
@@ -602,7 +757,7 @@ class ResearchEngine {
     if (score >= 90) return 'Verified';
     if (score >= 75) return 'Probable';
     if (score >= 50) return 'Possible';
-    if (score >= 25) return 'Flagged';
+    if (score >= 25) return 'Suggested';
     return 'Not Found';
   }
 
@@ -653,6 +808,150 @@ class ResearchEngine {
     const parts = place.split(',').map(p => p.trim()).filter(Boolean);
     // First part is usually the most specific (town/district)
     return parts[0] || '';
+  }
+
+  // ─── Section 3: Family Context Scoring ──────────────────────────────
+  // Points based on relationship to already-scored child + surname match
+  scoreFamilyContext(asc, scoredAncestors, ancestorRecord) {
+    let points = 0;
+    const notes = [];
+
+    if (asc <= 1) {
+      // Subject has no child in tree
+      notes.push('Subject (no parent-child link to score)');
+      return { points: 0, notes };
+    }
+
+    const childAsc = Math.floor(asc / 2);
+    const child = scoredAncestors.get(childAsc);
+    const isFather = asc % 2 === 0;
+    const relationship = isFather ? 'Father' : 'Mother';
+
+    if (child) {
+      const childName = child.name || 'unknown';
+      const childLevel = child.level || 'Unknown';
+      const childScore = child.score || 0;
+
+      // Points based on child's confidence
+      let childPoints = 0;
+      if (childLevel === 'Customer Data') { childPoints = 10; }
+      else if (childScore >= 90) { childPoints = 8; }
+      else if (childScore >= 75) { childPoints = 6; }
+      else if (childScore >= 50) { childPoints = 3; }
+      else { childPoints = 1; }
+
+      points += childPoints;
+      notes.push(`${relationship} of ${childName} (${childLevel}, +${childPoints})`);
+
+      // Surname match
+      const ancestorParts = parseNameParts(ancestorRecord.name || '');
+      const childParts = parseNameParts(child.name || '');
+
+      if (isFather && ancestorParts.surname && childParts.surname) {
+        if (ancestorParts.surname.toLowerCase() === childParts.surname.toLowerCase()) {
+          points += 5;
+          notes.push(`Surname: ${ancestorParts.surname} matches child ${childParts.surname} (+5)`);
+        } else {
+          notes.push(`Surname: ${ancestorParts.surname} vs child ${childParts.surname} (no match)`);
+        }
+      } else if (!isFather && ancestorParts.surname) {
+        // Mother — maiden name match is worth less (less certain further back)
+        // We can check if the child record has a known mother maiden name
+        points += 3;
+        notes.push(`Maiden name: ${ancestorParts.surname} (+3)`);
+      }
+    } else {
+      notes.push(`${relationship} of asc#${childAsc} (child not yet scored, +0)`);
+    }
+
+    return { points: Math.min(points, 15), notes };
+  }
+
+  // ─── Section 4: Location & Date Plausibility Scoring ────────────────
+  // Compares ancestor's data to their child's data for sanity checks
+  scoreLocationDate(asc, ancestorRecord, scoredAncestors) {
+    let points = 0;
+    const notes = [];
+
+    if (asc <= 1) {
+      notes.push('Location: subject (no child to compare)');
+      return { points: 0, notes };
+    }
+
+    const childAsc = Math.floor(asc / 2);
+    const child = scoredAncestors.get(childAsc);
+
+    if (!child) {
+      notes.push('Location: no child data to compare');
+      return { points: 0, notes };
+    }
+
+    // Parse places
+    const ancestorPlace = parsePlaceParts((ancestorRecord.birth_place || '').toLowerCase());
+    const childPlace = parsePlaceParts((child.birthPlace || '').toLowerCase());
+
+    // County match
+    if (ancestorPlace.county && childPlace.county) {
+      if (ancestorPlace.county === childPlace.county) {
+        points += 5;
+        notes.push(`Location: birth county ${ancestorPlace.county} matches child's county (+5)`);
+
+        // Town match (bonus on top of county)
+        if (ancestorPlace.town && childPlace.town && ancestorPlace.town === childPlace.town) {
+          points += 3;
+          notes.push(`Location: birth town ${ancestorPlace.town} matches child's town (+3)`);
+        }
+      } else {
+        notes.push(`Location: birth county ${ancestorPlace.county} vs child's ${childPlace.county} (no match)`);
+      }
+    } else if (!ancestorPlace.county && !childPlace.county) {
+      notes.push('Location: no birth counties to compare');
+    } else {
+      notes.push(`Location: ${ancestorPlace.county || 'unknown county'} vs child ${childPlace.county || 'unknown county'}`);
+    }
+
+    // Birth year plausibility
+    const ancestorYear = normalizeDate(ancestorRecord.birth_date || '')?.year;
+    const childYear = normalizeDate(child.birthDate || '')?.year;
+
+    if (ancestorYear && childYear) {
+      const gap = childYear - ancestorYear;
+      if (gap >= 18 && gap <= 45) {
+        points += 5;
+        notes.push(`Age: born ~${gap}yrs before child — plausible (+5)`);
+        if (gap >= 22 && gap <= 35) {
+          points += 2;
+          notes.push(`Age: sweet spot (+2)`);
+        }
+      } else if (gap > 0) {
+        notes.push(`Age: born ~${gap}yrs before child — outside typical range`);
+      } else {
+        notes.push(`Age: born ${Math.abs(gap)}yrs after child — implausible`);
+      }
+    } else {
+      notes.push('Age: no birth years to compare');
+    }
+
+    // Generational county match — does this ancestor's county match any other in same generation?
+    if (ancestorPlace.county) {
+      const myGen = Math.floor(Math.log2(asc));
+      const genStart = Math.pow(2, myGen);
+      const genEnd = Math.pow(2, myGen + 1) - 1;
+      for (let otherAsc = genStart; otherAsc <= genEnd; otherAsc++) {
+        if (otherAsc === asc) continue;
+        const other = scoredAncestors.get(otherAsc);
+        if (other && other.birthPlace) {
+          const otherPlace = parsePlaceParts(other.birthPlace.toLowerCase());
+          if (otherPlace.county === ancestorPlace.county) {
+            points += 2;
+            notes.push(`Location: county matches ${other.name} in same generation (+2)`);
+            break; // Only award once
+          }
+        }
+      }
+    }
+
+    return { points: Math.min(points, 17), notes };
   }
 
   // Check if two names are similar enough
@@ -1698,7 +1997,7 @@ class ResearchEngine {
         return this.storeNotFound(personInfo, ascNumber, generation, existingLog);
       }
 
-      // Store as Flagged — FS lead only, no civil records
+      // Store as Suggested — FS lead only, no civil records
       const evidenceChain = [{
         record_type: 'fs_tree_lead',
         source: 'FamilySearch',
@@ -1733,7 +2032,7 @@ class ResearchEngine {
         evidence_chain: evidenceChain,
         search_log: existingLog,
         conflicts: [],
-        verification_notes: 'FS tree lead only — no civil records found. Max status: Flagged.',
+        verification_notes: 'FS tree lead only — no civil records found. Max status: Suggested.',
       };
 
       this.storeOrUpdateAncestor(ascNumber, generation, ancestorData);
@@ -2405,9 +2704,9 @@ class ResearchEngine {
         }
         console.log(`[Engine] Total FS ancestors mapped: ${fsAncestors.size}`);
       }
-      // ── Phase 3: Store FS ancestors ──
+      // ── Phase 3a: Store FS ancestors with placeholder scores ──
 
-      console.log(`\n[Engine] ── Phase 3: Store Ancestors ──\n`);
+      console.log(`\n[Engine] ── Phase 3a: Store Ancestors ──\n`);
 
       const storedAscNumbers = new Set();
 
@@ -2418,66 +2717,31 @@ class ResearchEngine {
         const existing = this.db.getAncestorByAscNumber(this.jobId, asc);
         const fsPerson = fsAncestors.get(asc);
 
-        // Customer data — just enrich with FS ID, don't overwrite
+        // Customer data — enrich with FS ID, don't overwrite
         if (existing && existing.confidence_level === 'Customer Data') {
           storedAscNumbers.add(asc);
-          this.processedCount++;
-
           if (fsPerson && !existing.fs_person_id) {
             const fsPlace = sanitizePlaceName(fsPerson.birthPlace || '');
             if (!isNonUkPlace(fsPlace) || isUkPlace(fsPlace)) {
               this.db.updateAncestorByAscNumber(this.jobId, asc, {
                 fs_person_id: fsPerson.fs_person_id,
-                verification_notes: (existing.verification_notes || '') + ` | FS linked: ${fsPerson.fs_person_id}`,
               });
               console.log(`[Engine] asc#${asc}: Customer data linked to FS ${fsPerson.fs_person_id}`);
             }
           }
-          this.db.updateJobProgress(this.jobId,
-            `Customer: ${existing.name}`, this.processedCount, totalPossible);
           continue;
         }
 
-        // FS found this ancestor
+        // FS found this ancestor — store with placeholder scores
         if (fsPerson) {
           const fsPlace = sanitizePlaceName(fsPerson.birthPlace || fsPerson.deathPlace || '');
-
-          // Skip non-UK ancestors
           if (isNonUkPlace(fsPlace) && !isUkPlace(fsPlace)) {
             console.log(`[Engine] asc#${asc}: Skipping non-UK FS ancestor ${fsPerson.name} (${fsPlace})`);
             continue;
           }
 
           storedAscNumbers.add(asc);
-          this.processedCount++;
-
-          this.db.updateJobProgress(this.jobId,
-            `Storing ${fsPerson.name}...`, this.processedCount, totalPossible);
-
-          console.log(`[Engine] asc#${asc}: FS ancestor — ${fsPerson.name}, b.${fsPerson.birthDate} ${fsPerson.birthPlace}`);
-
-          // FS tree data — confidence based on how much detail we have
-          const hasBirthDate = !!fsPerson.birthDate;
-          const hasBirthPlace = !!fsPerson.birthPlace;
-          const hasDeathDate = !!fsPerson.deathDate;
-          const detailCount = [hasBirthDate, hasBirthPlace, hasDeathDate].filter(Boolean).length;
-
-          // Confidence: FS tree with dates/places = Probable, minimal data = Possible
-          let confidenceScore;
-          if (detailCount >= 2) {
-            confidenceScore = Math.min(85, 70 + detailCount * 5);
-          } else if (detailCount === 1) {
-            confidenceScore = 60;
-          } else {
-            confidenceScore = 45;
-          }
-          const confidenceLevel = this.getConfidenceLevel(confidenceScore);
-
-          const evidenceChain = [{
-            record_type: 'fs_tree', source: 'FamilySearch', is_independent: true,
-            details: `FS tree: ${fsPerson.name} (${fsPerson.fs_person_id}), b.${fsPerson.birthDate || '?'} ${fsPerson.birthPlace || '?'}`,
-            supports: ['identity'], weight: 25,
-          }];
+          console.log(`[Engine] asc#${asc}: Stored ${fsPerson.name}, b.${fsPerson.birthDate} ${fsPerson.birthPlace}`);
 
           this.storeOrUpdateAncestor(asc, generation, {
             fs_person_id: fsPerson.fs_person_id,
@@ -2487,20 +2751,137 @@ class ResearchEngine {
             birth_place: sanitizePlaceName(fsPerson.birthPlace || ''),
             death_date: fsPerson.deathDate || '',
             death_place: sanitizePlaceName(fsPerson.deathPlace || ''),
-            confidence: confidenceLevel.toLowerCase(),
+            confidence: 'pending',
             sources: ['FamilySearch'],
             raw_data: { fsPerson },
-            confidence_score: confidenceScore,
-            confidence_level: confidenceLevel,
-            evidence_chain: evidenceChain,
+            confidence_score: 0,
+            confidence_level: 'Pending',
+            evidence_chain: [],
             search_log: [],
             conflicts: [],
-            verification_notes: `FS tree: ${fsPerson.fs_person_id} | Details: ${detailCount}/3`,
+            verification_notes: '',
           });
+        }
+      }
 
-          console.log(`[Engine] asc#${asc}: ${fsPerson.name} — ${confidenceLevel} ${confidenceScore}%`);
+      console.log(`[Engine] Stored ${storedAscNumbers.size} ancestors (including customer data)`);
+
+      // ── Phase 3b: Score ancestors bottom-up using record-based points ──
+      // Score generation by generation (children first, then parents) so family
+      // context points can reference already-scored children.
+
+      console.log(`\n[Engine] ── Phase 3b: Record-Based Scoring ──\n`);
+
+      const scoredAncestors = new Map(); // asc → { score, level, name, surname, birthPlace, birthDate }
+      this.processedCount = 0;
+
+      // Build scoring order: gen 0, gen 1, gen 2, ... (children before parents)
+      const scoringOrder = [];
+      for (let gen = 0; gen <= this.generations; gen++) {
+        const genStart = Math.pow(2, gen);
+        const genEnd = Math.pow(2, gen + 1) - 1;
+        for (let asc = genStart; asc <= genEnd && asc <= maxAsc; asc++) {
+          const rec = this.db.getAncestorByAscNumber(this.jobId, asc);
+          if (rec) scoringOrder.push(asc);
+        }
+      }
+
+      for (const asc of scoringOrder) {
+        const rec = this.db.getAncestorByAscNumber(this.jobId, asc);
+        if (!rec) continue;
+
+        this.processedCount++;
+        const generation = Math.floor(Math.log2(asc));
+
+        // Customer Data — always 100%, skip API calls
+        if (rec.confidence_level === 'Customer Data') {
+          scoredAncestors.set(asc, {
+            score: 100, level: 'Customer Data',
+            name: rec.name, surname: parseNameParts(rec.name).surname,
+            birthPlace: rec.birth_place || '', birthDate: rec.birth_date || '',
+          });
+          this.db.updateJobProgress(this.jobId,
+            `Customer: ${rec.name}`, this.processedCount, totalPossible);
+          console.log(`[Engine] asc#${asc}: ${rec.name} — Customer Data 100%`);
           continue;
         }
+
+        // Score this ancestor using the 4-section points system
+        this.db.updateJobProgress(this.jobId,
+          `Scoring ${rec.name}...`, this.processedCount, totalPossible);
+
+        let sourceResult = { points: 0, notes: ['Sources: no FS ID'], evidenceChain: [] };
+        let factResult = { points: 0, notes: ['Facts: no FS ID'] };
+
+        // Sections 1 & 2: Fetch sources and facts from FS (if we have a person ID)
+        if (rec.fs_person_id) {
+          try {
+            const sources = await fsApi.getPersonSources(rec.fs_person_id);
+            sourceResult = scoreSourceRecords(sources);
+          } catch (err) {
+            console.log(`[Engine] asc#${asc}: getPersonSources error: ${err.message}`);
+            sourceResult = { points: 0, notes: [`Sources: error fetching (${err.message})`], evidenceChain: [] };
+          }
+
+          try {
+            const facts = await fsApi.extractFactsByType(rec.fs_person_id);
+            factResult = scorePersonFacts(facts);
+          } catch (err) {
+            console.log(`[Engine] asc#${asc}: extractFactsByType error: ${err.message}`);
+            factResult = { points: 0, notes: [`Facts: error fetching (${err.message})`] };
+          }
+        }
+
+        // Section 3: Family context
+        const familyResult = this.scoreFamilyContext(asc, scoredAncestors, rec);
+
+        // Section 4: Location & date plausibility
+        const locationResult = this.scoreLocationDate(asc, rec, scoredAncestors);
+
+        // Sum all points
+        const totalPoints = sourceResult.points + factResult.points + familyResult.points + locationResult.points;
+        const confidenceScore = computeFinalScore(totalPoints);
+        const confidenceLevel = this.getConfidenceLevel(confidenceScore);
+
+        // Build verification notes (period-separated for bullet display in UI)
+        const allNotes = [
+          ...familyResult.notes,
+          ...sourceResult.notes,
+          ...factResult.notes,
+          ...locationResult.notes,
+          `Total: ${totalPoints}pts — ${confidenceLevel} ${confidenceScore}%`,
+        ];
+        const verificationNotes = allNotes.join('. ');
+
+        // Build scoring breakdown for UI
+        const scoringBreakdown = {
+          sources: { points: sourceResult.points, details: sourceResult.notes },
+          facts: { points: factResult.points, details: factResult.notes },
+          family: { points: familyResult.points, details: familyResult.notes },
+          location: { points: locationResult.points, details: locationResult.notes },
+          total_points: totalPoints,
+          final_score: confidenceScore,
+        };
+
+        // Update ancestor in DB
+        const existingRaw = rec.raw_data || {};
+        this.db.updateAncestorByAscNumber(this.jobId, asc, {
+          confidence_score: confidenceScore,
+          confidence_level: confidenceLevel,
+          confidence: confidenceLevel.toLowerCase(),
+          evidence_chain: sourceResult.evidenceChain,
+          verification_notes: verificationNotes,
+          raw_data: { ...existingRaw, scoring_breakdown: scoringBreakdown },
+        });
+
+        // Store in scored map for downstream parents
+        scoredAncestors.set(asc, {
+          score: confidenceScore, level: confidenceLevel,
+          name: rec.name, surname: parseNameParts(rec.name).surname,
+          birthPlace: rec.birth_place || '', birthDate: rec.birth_date || '',
+        });
+
+        console.log(`[Engine] asc#${asc}: ${rec.name} — ${totalPoints}pts → ${confidenceLevel} ${confidenceScore}% (src=${sourceResult.points} fact=${factResult.points} fam=${familyResult.points} loc=${locationResult.points})`);
       }
 
       // ── Complete ──
@@ -2508,7 +2889,7 @@ class ResearchEngine {
       const verified = ancestors.filter(a => a.confidence_level === 'Verified' || a.confidence_level === 'Customer Data').length;
       const probable = ancestors.filter(a => a.confidence_level === 'Probable').length;
       const possible = ancestors.filter(a => a.confidence_level === 'Possible').length;
-      const flagged = ancestors.filter(a => a.confidence_level === 'Flagged').length;
+      const suggested = ancestors.filter(a => a.confidence_level === 'Suggested').length;
 
       this.db.updateResearchJob(this.jobId, {
         status: 'completed',
@@ -2518,14 +2899,14 @@ class ResearchEngine {
           verified,
           probable,
           possible,
-          flagged,
+          suggested,
         },
       });
       this.db.updateJobProgress(this.jobId, 'Research complete', ancestors.length, ancestors.length);
 
       console.log(`\n[Engine] ════════════════════════════════════════════════`);
       console.log(`[Engine] COMPLETE: ${ancestors.length} ancestors`);
-      console.log(`[Engine] Verified/Customer: ${verified}, Probable: ${probable}, Possible: ${possible}, Flagged: ${flagged}`);
+      console.log(`[Engine] Verified/Customer: ${verified}, Probable: ${probable}, Possible: ${possible}, Suggested: ${suggested}`);
       console.log(`[Engine] ════════════════════════════════════════════════\n`);
 
     } catch (err) {

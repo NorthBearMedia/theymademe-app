@@ -69,7 +69,55 @@
 </div>
 <% } %>
 
-<% if (candidates && candidates.length > 0) { %>
+<% if (ancestor.raw_data && ancestor.raw_data.scoring_breakdown) { %>
+<div class="card">
+    <h3>Scoring Breakdown &mdash; Points-Based Confidence</h3>
+    <%
+      var sb = ancestor.raw_data.scoring_breakdown;
+    %>
+    <div style="margin-top:12px;padding:16px;background:var(--cream);border-radius:8px;">
+        <table style="width:100%;font-size:13px;border-collapse:collapse;">
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px;">
+                    <strong>Source Records</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Civil registration, census, parish registers, military&hellip;</div>
+                </td>
+                <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;"><%= sb.sources.points %> pts</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px;">
+                    <strong>Person Facts</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Birth, death, marriage, residence dates &amp; places</div>
+                </td>
+                <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;"><%= sb.facts.points %> pts</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px;">
+                    <strong>Family Context</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Parent-child linkage, surname match</div>
+                </td>
+                <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;"><%= sb.family.points %> pts</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px;">
+                    <strong>Location &amp; Date</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">County/town match, generational age plausibility</div>
+                </td>
+                <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;"><%= sb.location.points %> pts</td>
+            </tr>
+            <tr style="background:var(--sage);color:white;">
+                <td style="padding:8px;font-weight:700;">Total Points &rarr; Confidence</td>
+                <td style="padding:8px;text-align:right;font-weight:700;font-size:16px;">
+                    <%= sb.total_points %> pts &rarr; <%= ancestor.confidence_score %>%
+                </td>
+            </tr>
+        </table>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+            55+ pts = Verified (90-95%) &bull; 35-54 = Probable (75-89%) &bull; 15-34 = Possible (50-74%) &bull; 5-14 = Suggested (30-49%)
+        </div>
+    </div>
+</div>
+<% } else if (candidates && candidates.length > 0) { %>
 <div class="card">
     <h3>Scoring Breakdown &mdash; Selected Candidate</h3>
     <%
@@ -84,50 +132,7 @@
             </div>
             <span style="font-size:18px;font-weight:700;color:var(--forest);"><%= selected.computed_score %>/100</span>
         </div>
-
-        <div style="font-size:13px;margin-bottom:8px;">
-            <strong>Search Pass:</strong> <%= selected.search_pass === 0 ? 'Direct Parent Lookup (from FamilySearch tree)' : 'Pass ' + selected.search_pass %>
-            <% if (selected.fs_score) { %>
-                &nbsp;&bull;&nbsp; <strong>FamilySearch Relevance:</strong> <%= typeof selected.fs_score === 'number' ? selected.fs_score.toFixed(1) : selected.fs_score %>
-            <% } %>
-        </div>
-
-        <%
-          // Parse the verification notes to extract score breakdown
-          var verNotes = (ancestor.verification_notes || '');
-          var searchScoreMatch = verNotes.match(/Search score: (\d+)\/100/);
-          var evidenceScoreMatch = verNotes.match(/Evidence score: (\d+)\/100/);
-          var searchScore = searchScoreMatch ? parseInt(searchScoreMatch[1]) : selected.computed_score;
-          var evidenceScore = evidenceScoreMatch ? parseInt(evidenceScoreMatch[1]) : 0;
-          var hasTreeLink = verNotes.includes('Linked in FamilySearch tree');
-        %>
-
-        <div style="margin-top:12px;">
-            <h4 style="font-size:13px;margin-bottom:8px;color:var(--forest);">Confidence Calculation</h4>
-            <table style="width:100%;font-size:13px;border-collapse:collapse;">
-                <tr style="border-bottom:1px solid var(--border);">
-                    <td style="padding:6px 8px;"><strong>Search Score</strong> (name, dates, places, parents, gender match)</td>
-                    <td style="padding:6px 8px;text-align:right;font-weight:700;"><%= searchScore %>/100</td>
-                </tr>
-                <tr style="border-bottom:1px solid var(--border);">
-                    <td style="padding:6px 8px;"><strong>Evidence Score</strong> (FamilySearch sources &amp; records)</td>
-                    <td style="padding:6px 8px;text-align:right;font-weight:700;"><%= evidenceScore %>/100</td>
-                </tr>
-                <% if (hasTreeLink) { %>
-                <tr style="border-bottom:1px solid var(--border);background:#d4edda;">
-                    <td style="padding:6px 8px;"><strong>Tree Link Bonus</strong> (linked as parent in FamilySearch tree)</td>
-                    <td style="padding:6px 8px;text-align:right;font-weight:700;color:#155724;">+30 bonus</td>
-                </tr>
-                <% } %>
-                <tr style="background:var(--sage);color:white;">
-                    <td style="padding:8px;font-weight:700;">Final Confidence</td>
-                    <td style="padding:8px;text-align:right;font-weight:700;font-size:15px;"><%= ancestor.confidence_score %>%</td>
-                </tr>
-            </table>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
-                Formula: (Search &times; 0.6) + (Evidence &times; 0.4)<%= hasTreeLink ? ' with tree-floor minimum of Search &times; 0.85' : '' %>
-            </div>
-        </div>
+        <div style="font-size:13px;color:var(--text-muted);">Legacy scoring — scored before points-based system was implemented.</div>
     </div>
     <% } %>
 </div>
