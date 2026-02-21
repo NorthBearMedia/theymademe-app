@@ -99,6 +99,7 @@ router.post('/start', requireAuth, async (req, res) => {
       search_log: [],
       conflicts: [],
       verification_notes: 'Customer-provided data',
+      accepted: 1,
     });
   }
 
@@ -125,6 +126,7 @@ router.post('/start', requireAuth, async (req, res) => {
       search_log: [],
       conflicts: [],
       verification_notes: 'Customer-provided data',
+      accepted: 1,
     });
   }
 
