@@ -50,17 +50,38 @@
         <form action="/admin/geni/disconnect" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>
         </form>
-    <% } else if (typeof geniConfigured !== 'undefined' && geniConfigured) { %>
+    <% } else { %>
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
             <span class="badge badge-danger">Not Connected</span>
         </div>
         <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">Connect to Geni.com (~180M profiles) for additional search results.</p>
-        <a href="/admin/geni/connect" class="btn btn-primary btn-sm">Connect to Geni</a>
-    <% } else { %>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-            <span class="badge" style="background:#6c757d;color:#fff;">Not Configured</span>
+        <% if (typeof geniConfigured !== 'undefined' && geniConfigured) { %>
+            <a href="/admin/geni/connect" class="btn btn-primary btn-sm" style="margin-right:8px;">Connect via OAuth</a>
+        <% } %>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('geni-manual-token').style.display='block'" style="margin-bottom:12px;">Paste Token Manually</button>
+        <div id="geni-manual-token" style="display:none;margin-top:12px;padding:14px;background:var(--bg-alt, #f8f9fa);border-radius:8px;">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">
+                <strong>Option 1:</strong> Go to <a href="https://www.geni.com/platform/developer/api_explorer" target="_blank" rel="noopener">Geni API Explorer</a>,
+                log in, and copy the access token shown (look in the URL bar or a token field after any API call).
+            </p>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">
+                <strong>Option 2:</strong> If you have a Geni app registered, use your App Key as the client_id.
+                The App Key should be ~40 characters (e.g. <code>zVRR6xzi...</code>).
+            </p>
+            <form action="/admin/geni/set-token" method="POST" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+                <div style="flex:1;min-width:250px;">
+                    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Access Token</label>
+                    <input type="text" name="token" placeholder="Paste Geni access token here" required
+                        style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+                </div>
+                <div style="min-width:200px;">
+                    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Refresh Token (optional)</label>
+                    <input type="text" name="refresh_token" placeholder="Optional refresh token"
+                        style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Save Token</button>
+            </form>
         </div>
-        <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">Set GENI_CLIENT_ID and GENI_CLIENT_SECRET environment variables to enable.</p>
     <% } %>
 </div>
 

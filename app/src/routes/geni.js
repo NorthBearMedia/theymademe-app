@@ -11,6 +11,9 @@ router.get('/connect', requireAuth, (req, res) => {
     return res.status(400).send('Geni not configured — set GENI_CLIENT_ID and GENI_CLIENT_SECRET environment variables.');
   }
   const authUrl = oauth.getAuthorizationUrl(req.session);
+  console.log(`[Geni] Redirecting to OAuth: ${authUrl}`);
+  console.log(`[Geni] Client ID: ${config.GENI_CLIENT_ID} (${config.GENI_CLIENT_ID.length} chars)`);
+  console.log(`[Geni] Redirect URI: ${config.GENI_REDIRECT_URI}`);
   res.redirect(authUrl);
 });
 
@@ -48,16 +51,24 @@ router.get('/status', requireAuth, (req, res) => {
   res.json({ connected: !!tokenData, ...(tokenData || {}) });
 });
 
-// Manual token injection
+// Manual token injection (supports both form POST and JSON)
 router.post('/set-token', requireAuth, (req, res) => {
   const { token, refresh_token } = req.body;
-  if (!token) return res.status(400).json({ error: 'Token is required' });
+  if (!token) {
+    if (req.headers['content-type']?.includes('json')) {
+      return res.status(400).json({ error: 'Token is required' });
+    }
+    return res.redirect('/admin?geniError=Token+is+required');
+  }
   const db = require('../services/database');
-  db.setSetting('geni_access_token', token);
-  db.setSetting('geni_refresh_token', refresh_token || '');
+  db.setSetting('geni_access_token', token.trim());
+  db.setSetting('geni_refresh_token', (refresh_token || '').trim());
   db.setSetting('geni_token_obtained_at', new Date().toISOString());
   console.log('[Geni] Token set manually via /set-token endpoint');
-  res.json({ success: true, message: 'Geni token stored' });
+  if (req.headers['content-type']?.includes('json')) {
+    return res.json({ success: true, message: 'Geni token stored' });
+  }
+  res.redirect('/admin');
 });
 
 module.exports = router;
