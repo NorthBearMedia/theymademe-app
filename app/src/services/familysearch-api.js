@@ -219,14 +219,38 @@ async function getAncestry(personId, generations = 4) {
   return data.persons.map(person => {
     const display = person.display || {};
     const ascNum = person.display?.ascendancyNumber;
+
+    // Extract dates/places from facts if display is empty
+    let birthDate = display.birthDate || '';
+    let birthPlace = display.birthPlace || '';
+    let deathDate = display.deathDate || '';
+    let deathPlace = display.deathPlace || '';
+
+    if (person.facts) {
+      for (const fact of person.facts) {
+        const type = (fact.type || '').toLowerCase();
+        const dateStr = fact.date?.original || '';
+        const placeStr = fact.place?.original || '';
+
+        if (type.includes('birth') || type.includes('christening')) {
+          if (!birthDate && dateStr) birthDate = dateStr;
+          if (!birthPlace && placeStr) birthPlace = placeStr;
+        }
+        if (type.includes('death') || type.includes('burial')) {
+          if (!deathDate && dateStr) deathDate = dateStr;
+          if (!deathPlace && placeStr) deathPlace = placeStr;
+        }
+      }
+    }
+
     return {
       fs_person_id: person.id,
       name: display.name || 'Unknown',
       gender: display.gender || 'Unknown',
-      birthDate: display.birthDate || '',
-      birthPlace: display.birthPlace || '',
-      deathDate: display.deathDate || '',
-      deathPlace: display.deathPlace || '',
+      birthDate,
+      birthPlace,
+      deathDate,
+      deathPlace,
       ascendancy_number: ascNum ? parseInt(ascNum, 10) : null,
       generation: ascNum ? Math.floor(Math.log2(parseInt(ascNum, 10))) : 0,
       raw_data: person,
