@@ -59,6 +59,14 @@ async function rateLimitedApiRequest(path, options = {}) {
   return apiRequest(path, options);
 }
 
+// Extract a 4-digit year from various date formats (e.g. "01 January 1931", "1931", "13.07.1936")
+// FS birthLikeDate/deathLikeDate only accepts year format, not full dates
+function extractYear(dateStr) {
+  if (!dateStr) return '';
+  const m = String(dateStr).match(/\b(\d{4})\b/);
+  return m ? m[1] : '';
+}
+
 // Search for a person in the FamilySearch tree
 // Returns full GEDCOM X person data for scoring, not just display fields
 async function searchPerson({
@@ -69,9 +77,11 @@ async function searchPerson({
   const params = new URLSearchParams();
   if (givenName) params.set('q.givenName', givenName);
   if (surname) params.set('q.surname', surname);
-  if (birthDate) params.set('q.birthLikeDate', birthDate);
+  const birthYear = extractYear(birthDate);
+  if (birthYear) params.set('q.birthLikeDate', birthYear);
   if (birthPlace) params.set('q.birthLikePlace', birthPlace);
-  if (deathDate) params.set('q.deathLikeDate', deathDate);
+  const deathYear = extractYear(deathDate);
+  if (deathYear) params.set('q.deathLikeDate', deathYear);
   if (deathPlace) params.set('q.deathLikePlace', deathPlace);
   if (fatherGivenName) params.set('q.fatherGivenName', fatherGivenName);
   if (fatherSurname) params.set('q.fatherSurname', fatherSurname);
