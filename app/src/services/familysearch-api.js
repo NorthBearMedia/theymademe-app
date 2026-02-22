@@ -46,6 +46,11 @@ async function apiRequest(path, options = {}, retryCount = 0) {
     throw new Error(`FamilySearch API error (${response.status}): ${text}`);
   }
 
+  // Handle 204 No Content (e.g. parents endpoint when no parents exist)
+  if (response.status === 204) {
+    return {};
+  }
+
   return response.json();
 }
 
@@ -166,6 +171,7 @@ async function getParents(personId) {
     let mother = null;
 
     // Parse childAndParentsRelationships
+    // API may use either father/mother OR parent1/parent2 keys
     const relationships = data.childAndParentsRelationships || [];
     if (relationships.length > 0) {
       // Prefer biological parent relationship, fall back to first
@@ -173,39 +179,40 @@ async function getParents(personId) {
         !r.type || r.type.includes('Biological') || r.type.includes('Birth')
       ) || relationships[0];
 
-      if (rel.father?.resourceId) {
-        const fatherPerson = personMap[rel.father.resourceId];
-        if (fatherPerson) {
-          const d = fatherPerson.display || {};
-          father = {
-            id: fatherPerson.id,
-            name: d.name || 'Unknown',
-            gender: d.gender || 'Male',
-            birthDate: d.birthDate || '',
-            birthPlace: d.birthPlace || '',
-            deathDate: d.deathDate || '',
-            deathPlace: d.deathPlace || '',
-            facts: fatherPerson.facts || [],
-            raw: fatherPerson,
-          };
-        }
-      }
+      // Collect parent IDs from either format
+      const parentIds = [];
+      if (rel.father?.resourceId) parentIds.push(rel.father.resourceId);
+      if (rel.mother?.resourceId) parentIds.push(rel.mother.resourceId);
+      if (rel.parent1?.resourceId) parentIds.push(rel.parent1.resourceId);
+      if (rel.parent2?.resourceId) parentIds.push(rel.parent2.resourceId);
 
-      if (rel.mother?.resourceId) {
-        const motherPerson = personMap[rel.mother.resourceId];
-        if (motherPerson) {
-          const d = motherPerson.display || {};
-          mother = {
-            id: motherPerson.id,
-            name: d.name || 'Unknown',
-            gender: d.gender || 'Female',
-            birthDate: d.birthDate || '',
-            birthPlace: d.birthPlace || '',
-            deathDate: d.deathDate || '',
-            deathPlace: d.deathPlace || '',
-            facts: motherPerson.facts || [],
-            raw: motherPerson,
-          };
+      // Deduplicate and assign by gender
+      for (const pid of [...new Set(parentIds)]) {
+        const person = personMap[pid];
+        if (!person) continue;
+        const d = person.display || {};
+        const genderType = person.gender?.type || '';
+        const isMale = (d.gender || '').toLowerCase() === 'male' || genderType.includes('Male');
+        const isFemale = (d.gender || '').toLowerCase() === 'female' || genderType.includes('Female');
+        const parentData = {
+          id: person.id,
+          name: d.name || 'Unknown',
+          gender: d.gender || (isMale ? 'Male' : isFemale ? 'Female' : 'Unknown'),
+          birthDate: d.birthDate || '',
+          birthPlace: d.birthPlace || '',
+          deathDate: d.deathDate || '',
+          deathPlace: d.deathPlace || '',
+          facts: person.facts || [],
+          raw: person,
+        };
+        if (isMale && !father) {
+          father = parentData;
+        } else if (isFemale && !mother) {
+          mother = parentData;
+        } else if (!father) {
+          father = parentData; // fallback: first unknown goes to father
+        } else if (!mother) {
+          mother = parentData; // second unknown goes to mother
         }
       }
     }
