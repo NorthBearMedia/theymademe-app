@@ -2700,6 +2700,17 @@ class ResearchEngine {
             const candFirst = (cand.name || '').split(' ')[0];
             if (!this.namesSimilar(candFirst, np.givenName)) continue;
 
+            // Surname must match (exact or very close) — prevents matching wrong family
+            const candParts = parseNameParts(cand.name || '');
+            if (np.surname && candParts.surname) {
+              const recSur = np.surname.toLowerCase();
+              const candSur = candParts.surname.toLowerCase();
+              if (recSur !== candSur && !recSur.includes(candSur) && !candSur.includes(recSur)) {
+                console.log(`[Engine]     → surname mismatch: ${candParts.surname} ≠ ${np.surname}`);
+                continue;
+              }
+            }
+
             const recBirthYear = normalizeDate(rec.birth_date)?.year;
             const candYear = normalizeDate(cand.birthDate)?.year;
             if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > 5) continue;
@@ -2781,6 +2792,7 @@ class ResearchEngine {
       console.log(`\n[Engine] ── Phase 3a: Store Ancestors ──\n`);
 
       const storedAscNumbers = new Set();
+      const rejectedAscNumbers = new Set(); // Track rejected slots so descendants are also skipped
 
       for (let asc = 1; asc <= maxAsc; asc++) {
         const generation = Math.floor(Math.log2(asc));
@@ -2804,11 +2816,72 @@ class ResearchEngine {
           continue;
         }
 
-        // FS found this ancestor — store with placeholder scores
+        // FS found this ancestor — validate BEFORE storing
         if (fsPerson) {
+          // If this person's child slot was rejected, skip entire sub-tree
+          const parentSlot = Math.floor(asc / 2);
+          if (parentSlot > 0 && rejectedAscNumbers.has(parentSlot)) {
+            console.log(`[Engine] asc#${asc}: Skipping — parent slot #${parentSlot} was rejected`);
+            rejectedAscNumbers.add(asc);
+            continue;
+          }
+
           const fsPlace = sanitizePlaceName(fsPerson.birthPlace || fsPerson.deathPlace || '');
           if (isNonUkPlace(fsPlace) && !isUkPlace(fsPlace)) {
             console.log(`[Engine] asc#${asc}: Skipping non-UK FS ancestor ${fsPerson.name} (${fsPlace})`);
+            continue;
+          }
+
+          // ── Pre-ingestion validation: reject obviously wrong ancestors ──
+          const childAsc = parentSlot; // same as Math.floor(asc / 2)
+          const childRec = childAsc >= 1 ? this.db.getAncestorByAscNumber(this.jobId, childAsc) : null;
+          const isFather = asc % 2 === 0;
+          let rejected = false;
+
+          if (childRec && asc > 1) {
+            const fsNameParts = parseNameParts(fsPerson.name || '');
+            const childNameParts = parseNameParts(childRec.name || '');
+
+            // CHECK 1: Father surname must match child's surname
+            if (isFather && fsNameParts.surname && childNameParts.surname) {
+              const fsSur = fsNameParts.surname.toLowerCase();
+              const childSur = childNameParts.surname.toLowerCase();
+              // Allow hyphenated names (e.g. Ahlfors-Hunt contains Ahlfors)
+              const childSurParts = childSur.split('-').map(s => s.trim());
+              const surnameMatch = fsSur === childSur || childSurParts.includes(fsSur) || fsSur.includes(childSur);
+              if (!surnameMatch) {
+                console.log(`[Engine] asc#${asc}: REJECTED ${fsPerson.name} — father surname "${fsNameParts.surname}" ≠ child "${childNameParts.surname}"`);
+                rejected = true;
+              }
+            }
+
+            // CHECK 2: Birth year gap must be plausible (15-55 years)
+            if (!rejected) {
+              const fsYear = normalizeDate(fsPerson.birthDate)?.year;
+              const childYear = normalizeDate(childRec.birth_date)?.year;
+              if (fsYear && childYear) {
+                const gap = childYear - fsYear;
+                if (gap < 10 || gap > 65) {
+                  console.log(`[Engine] asc#${asc}: REJECTED ${fsPerson.name} — birth gap ${gap}yrs (b.${fsYear}, child b.${childYear})`);
+                  rejected = true;
+                }
+              }
+            }
+
+            // CHECK 3: If parent died before child was born, reject
+            if (!rejected) {
+              const fsDeathYear = normalizeDate(fsPerson.deathDate)?.year;
+              const childBirthYear = normalizeDate(childRec.birth_date)?.year;
+              if (fsDeathYear && childBirthYear && fsDeathYear < childBirthYear - 1) {
+                console.log(`[Engine] asc#${asc}: REJECTED ${fsPerson.name} — died ${fsDeathYear} before child born ${childBirthYear}`);
+                rejected = true;
+              }
+            }
+          }
+
+          if (rejected) {
+            rejectedAscNumbers.add(asc);
+            console.log(`[Engine] asc#${asc}: Slot left empty — rejected FS tree data`);
             continue;
           }
 
