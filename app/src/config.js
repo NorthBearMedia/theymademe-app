@@ -29,6 +29,10 @@ module.exports = {
   // FreeBMD
   FREEBMD_BASE_URL: process.env.FREEBMD_BASE_URL || 'https://www.freebmd.org.uk',
 
+  // AI Review
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+
   // Paths
   DATA_DIR: process.env.DATA_DIR || '/app/data',
 };

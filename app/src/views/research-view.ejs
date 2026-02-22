@@ -15,6 +15,10 @@
                 </form>
             <% } %>
             <% if (job.status === 'completed') { %>
+                <a href="/admin/research/<%= job.id %>/ai-review" class="btn btn-sm" style="background:#7c3aed;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">
+                    AI Review
+                    <% if (job.ai_review_status === 'completed') { %> &#10003;<% } else if (job.ai_review_status === 'running') { %> ...<% } %>
+                </a>
                 <a href="/admin/export/pdf/<%= job.id %>/preview" target="_blank" class="btn btn-primary btn-sm">Preview PDF</a>
                 <a href="/admin/export/pdf/<%= job.id %>" class="btn btn-primary btn-sm">Download PDF</a>
                 <a href="/admin/export/gedcom/<%= job.id %>" class="btn btn-secondary btn-sm">GEDCOM</a>

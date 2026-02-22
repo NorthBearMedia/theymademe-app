@@ -128,6 +128,20 @@ function initialize() {
   if (!hasColumn('ancestors', 'missing_info')) {
     conn.exec(`ALTER TABLE ancestors ADD COLUMN missing_info TEXT DEFAULT '[]'`);
   }
+
+  // AI Review pipeline
+  if (!hasColumn('ancestors', 'ai_review')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN ai_review TEXT DEFAULT '{}'`);
+  }
+  if (!hasColumn('ancestors', 'freebmd_results')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN freebmd_results TEXT DEFAULT '{}'`);
+  }
+  if (!hasColumn('research_jobs', 'ai_review_summary')) {
+    conn.exec(`ALTER TABLE research_jobs ADD COLUMN ai_review_summary TEXT DEFAULT '{}'`);
+  }
+  if (!hasColumn('research_jobs', 'ai_review_status')) {
+    conn.exec(`ALTER TABLE research_jobs ADD COLUMN ai_review_status TEXT DEFAULT 'none'`);
+  }
 }
 
 // Settings
@@ -156,6 +170,7 @@ function getResearchJob(id) {
   const row = getDb().prepare('SELECT * FROM research_jobs WHERE id = ?').get(id);
   if (row && row.input_data) row.input_data = JSON.parse(row.input_data);
   if (row && row.results) row.results = JSON.parse(row.results);
+  if (row && row.ai_review_summary) try { row.ai_review_summary = JSON.parse(row.ai_review_summary); } catch(e) { row.ai_review_summary = {}; }
   return row;
 }
 
@@ -212,6 +227,8 @@ function getAncestors(researchJobId) {
     if (row.search_log) row.search_log = JSON.parse(row.search_log);
     if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
     if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
+    if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
+    if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
     return row;
   });
 }
@@ -225,6 +242,8 @@ function getAncestorById(id) {
   if (row.search_log) row.search_log = JSON.parse(row.search_log);
   if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
   if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
+  if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
+  if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
   return row;
 }
 
@@ -246,6 +265,8 @@ function getAncestorByAscNumber(researchJobId, ascNumber) {
   if (row.search_log) row.search_log = JSON.parse(row.search_log);
   if (row.conflicts) row.conflicts = JSON.parse(row.conflicts);
   if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
+  if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
+  if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
   return row;
 }
 

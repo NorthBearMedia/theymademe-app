@@ -479,6 +479,51 @@ router.get('/:id/ancestor/:ancestorId', requireAuth, (req, res) => {
   res.render('ancestor-detail', { job, ancestor, candidates, parentName });
 });
 
+// ─── AI Review Routes ──────────────────────────────────────────────
+
+// AI Review page
+router.get('/:id/ai-review', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ancestors = db.getAncestors(req.params.id);
+  res.render('ai-review', { job, ancestors });
+});
+
+// Manually trigger/re-run AI review
+router.post('/:id/ai-review/run', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  if (job.ai_review_status === 'running') {
+    return res.redirect(`/admin/research/${req.params.id}/ai-review`);
+  }
+
+  const aiReviewer = require('../services/ai-reviewer');
+  db.updateResearchJob(req.params.id, { ai_review_status: 'running' });
+
+  // Fire-and-forget
+  aiReviewer.runFullReview(req.params.id).catch(err => {
+    console.error(`AI review for ${req.params.id} failed:`, err);
+  });
+
+  res.redirect(`/admin/research/${req.params.id}/ai-review`);
+});
+
+// AI review status polling (JSON)
+router.get('/:id/ai-review/status', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Not found' });
+
+  res.json({
+    ai_review_status: job.ai_review_status || 'none',
+    ai_review_summary: job.ai_review_summary || {},
+    progress_message: job.progress_message || '',
+    progress_current: job.progress_current || 0,
+    progress_total: job.progress_total || 0,
+  });
+});
+
 // View research results
 router.get('/:id', requireAuth, (req, res) => {
   const job = db.getResearchJob(req.params.id);

@@ -1,0 +1,320 @@
+<div class="card">
+    <div class="header-row">
+        <div>
+            <a href="/admin/research/<%= job.id %>" style="font-size:13px;color:var(--forest);text-decoration:underline;">&larr; Back to research results</a>
+            <h2 style="margin-bottom:4px;margin-top:8px;">AI Review &mdash; <%= job.customer_name %></h2>
+            <span style="font-size:13px;color:var(--text-muted);">
+                <%= ancestors.length %> ancestors &mdash; <%= job.generations %> generations
+            </span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <%
+              var aiStatus = job.ai_review_status || 'none';
+              var statusBadge = aiStatus === 'completed' ? 'badge-success' : aiStatus === 'running' ? 'badge-info' : aiStatus === 'failed' ? 'badge-danger' : 'badge-warning';
+            %>
+            <span class="badge <%= statusBadge %>"><%= aiStatus === 'none' ? 'Not run' : aiStatus %></span>
+            <% if (aiStatus !== 'running') { %>
+                <form action="/admin/research/<%= job.id %>/ai-review/run" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-primary btn-sm"><%= aiStatus === 'completed' ? 'Re-run AI Review' : 'Run AI Review' %></button>
+                </form>
+            <% } %>
+        </div>
+    </div>
+
+    <% if (aiStatus === 'running') { %>
+        <div id="ai-progress" style="margin-top:12px;">
+            <div style="background:#e8e8e8;border-radius:8px;height:24px;overflow:hidden;margin-bottom:8px;">
+                <div id="ai-progress-bar" style="background:var(--sage);height:100%;width:0%;transition:width 0.5s ease;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                </div>
+            </div>
+            <div id="ai-progress-msg" style="font-size:13px;color:var(--forest);">Starting AI review...</div>
+        </div>
+        <script>
+        (function() {
+            var poll = setInterval(function() {
+                fetch('/admin/research/<%= job.id %>/ai-review/status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        var bar = document.getElementById('ai-progress-bar');
+                        var msg = document.getElementById('ai-progress-msg');
+                        if (d.progress_total > 0) {
+                            var pct = Math.round(d.progress_current / d.progress_total * 100);
+                            bar.style.width = pct + '%';
+                            if (pct > 15) bar.innerHTML = '<span style="color:white;font-size:11px;font-weight:700;">' + pct + '%</span>';
+                        }
+                        if (d.progress_message) msg.textContent = d.progress_message;
+                        if (d.ai_review_status !== 'running') {
+                            clearInterval(poll);
+                            location.reload();
+                        }
+                    });
+            }, 3000);
+        })();
+        </script>
+    <% } %>
+</div>
+
+<% if (aiStatus === 'completed' && job.ai_review_summary) { %>
+    <%
+      var summary = job.ai_review_summary || {};
+      var gptOverall = summary.gpt ? summary.gpt.overall || {} : null;
+      var claudeOverall = summary.claude ? summary.claude.overall || {} : null;
+      var gptGaps = summary.gpt ? summary.gpt.gap_analysis || [] : [];
+      var claudeGaps = summary.claude ? summary.claude.gap_analysis || [] : [];
+    %>
+
+    <!-- Overall Summaries -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+        <% if (gptOverall) { %>
+        <div class="card" style="border-left:4px solid #10a37f;">
+            <h3 style="font-size:15px;color:#10a37f;margin-bottom:8px;">GPT-4o Review</h3>
+            <%
+              var gptConsistency = gptOverall.tree_consistency || 'unknown';
+              var conColor = gptConsistency === 'good' ? '#155724' : gptConsistency === 'fair' ? '#856404' : '#721c24';
+              var conBg = gptConsistency === 'good' ? '#d4edda' : gptConsistency === 'fair' ? '#fff3cd' : '#f8d7da';
+            %>
+            <span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:700;background:<%= conBg %>;color:<%= conColor %>;">
+                Tree Consistency: <%= gptConsistency %>
+            </span>
+            <p style="font-size:13px;margin-top:8px;color:var(--text-muted);"><%= gptOverall.summary || '' %></p>
+            <% if (gptOverall.critical_issues && gptOverall.critical_issues.length > 0) { %>
+                <div style="margin-top:8px;">
+                    <strong style="color:#dc3545;font-size:12px;">Critical Issues:</strong>
+                    <ul style="font-size:12px;margin:4px 0 0 16px;color:#721c24;">
+                        <% gptOverall.critical_issues.forEach(function(issue) { %>
+                            <li><%= issue %></li>
+                        <% }); %>
+                    </ul>
+                </div>
+            <% } %>
+        </div>
+        <% } else { %>
+        <div class="card" style="border-left:4px solid #ccc;"><p style="color:var(--text-muted);font-size:13px;">GPT-4o not configured or failed</p></div>
+        <% } %>
+
+        <% if (claudeOverall) { %>
+        <div class="card" style="border-left:4px solid #c96442;">
+            <h3 style="font-size:15px;color:#c96442;margin-bottom:8px;">Claude Sonnet Review</h3>
+            <%
+              var claudeConsistency = claudeOverall.tree_consistency || 'unknown';
+              var cConColor = claudeConsistency === 'good' ? '#155724' : claudeConsistency === 'fair' ? '#856404' : '#721c24';
+              var cConBg = claudeConsistency === 'good' ? '#d4edda' : claudeConsistency === 'fair' ? '#fff3cd' : '#f8d7da';
+            %>
+            <span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:700;background:<%= cConBg %>;color:<%= cConColor %>;">
+                Tree Consistency: <%= claudeConsistency %>
+            </span>
+            <p style="font-size:13px;margin-top:8px;color:var(--text-muted);"><%= claudeOverall.summary || '' %></p>
+            <% if (claudeOverall.critical_issues && claudeOverall.critical_issues.length > 0) { %>
+                <div style="margin-top:8px;">
+                    <strong style="color:#dc3545;font-size:12px;">Critical Issues:</strong>
+                    <ul style="font-size:12px;margin:4px 0 0 16px;color:#721c24;">
+                        <% claudeOverall.critical_issues.forEach(function(issue) { %>
+                            <li><%= issue %></li>
+                        <% }); %>
+                    </ul>
+                </div>
+            <% } %>
+        </div>
+        <% } else { %>
+        <div class="card" style="border-left:4px solid #ccc;"><p style="color:var(--text-muted);font-size:13px;">Claude not configured or failed</p></div>
+        <% } %>
+    </div>
+
+    <% if (summary.errors && summary.errors.length > 0) { %>
+        <div class="card" style="margin-top:12px;background:#f8d7da;border-left:4px solid #dc3545;">
+            <h3 style="font-size:14px;color:#721c24;margin-bottom:8px;">Review Errors</h3>
+            <% summary.errors.forEach(function(err) { %>
+                <div style="font-size:12px;color:#721c24;"><strong><%= err.model %>:</strong> <%= err.error %></div>
+            <% }); %>
+        </div>
+    <% } %>
+
+    <!-- Per-Ancestor Reviews -->
+    <h2 style="margin-top:24px;font-size:18px;color:var(--forest);">Ancestor Reviews</h2>
+
+    <% ancestors.filter(function(a) { return a.ascendancy_number > 1; }).sort(function(a,b) { return a.ascendancy_number - b.ascendancy_number; }).forEach(function(anc) {
+        var aiReview = anc.ai_review || {};
+        var gptReview = aiReview.gpt || null;
+        var claudeReview = aiReview.claude || null;
+        var freebmdRes = anc.freebmd_results || {};
+
+        // Count flags by type
+        var allFlags = [];
+        if (gptReview && gptReview.flags) allFlags = allFlags.concat(gptReview.flags);
+        if (claudeReview && claudeReview.flags) allFlags = allFlags.concat(claudeReview.flags);
+        var errorCount = allFlags.filter(function(f) { return f.type === 'error'; }).length;
+        var warningCount = allFlags.filter(function(f) { return f.type === 'warning'; }).length;
+        var confirmCount = allFlags.filter(function(f) { return f.type === 'confirmation'; }).length;
+
+        var borderColor = errorCount > 0 ? '#dc3545' : warningCount > 0 ? '#ffc107' : confirmCount > 0 ? '#28a745' : '#ddd';
+    %>
+    <div class="card" style="margin-top:12px;border-left:4px solid <%= borderColor %>;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div>
+                <a href="/admin/research/<%= job.id %>/ancestor/<%= anc.id %>" style="font-weight:700;font-size:15px;color:var(--forest);text-decoration:none;">
+                    #<%= anc.ascendancy_number %> &mdash; <%= anc.name %>
+                </a>
+                <span style="font-size:12px;color:var(--text-muted);margin-left:8px;"><%= anc.gender %></span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <%
+                  var badgeColor = anc.confidence_score >= 90 ? '#155724' : anc.confidence_score >= 75 ? '#1a5276' : anc.confidence_score >= 50 ? '#856404' : '#721c24';
+                  var badgeBg = anc.confidence_score >= 90 ? '#d4edda' : anc.confidence_score >= 75 ? '#d6eaf8' : anc.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
+                %>
+                <span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;">
+                    <%= anc.confidence_score %>% <%= anc.confidence_level %>
+                </span>
+                <% if (errorCount > 0) { %><span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:#f8d7da;color:#721c24;"><%= errorCount %> error<%= errorCount > 1 ? 's' : '' %></span><% } %>
+                <% if (warningCount > 0) { %><span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:#fff3cd;color:#856404;"><%= warningCount %> warning<%= warningCount > 1 ? 's' : '' %></span><% } %>
+                <% if (confirmCount > 0) { %><span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:#d4edda;color:#155724;"><%= confirmCount %> confirmed</span><% } %>
+            </div>
+        </div>
+
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+            <% if (anc.birth_date || anc.birth_place) { %>b. <%= anc.birth_date || '?' %> <%= anc.birth_place || '' %><% } %>
+            <% if (anc.death_date || anc.death_place) { %>&mdash; d. <%= anc.death_date || '?' %> <%= anc.death_place || '' %><% } %>
+        </div>
+
+        <!-- FreeBMD Results -->
+        <% if (freebmdRes && (freebmdRes.birth || freebmdRes.death || freebmdRes.marriage || freebmdRes.note)) { %>
+            <div style="margin-top:10px;padding:8px 12px;background:#f8f9fa;border-radius:6px;font-size:12px;">
+                <strong style="color:var(--forest);">FreeBMD:</strong>
+                <% if (freebmdRes.note) { %>
+                    <span style="color:var(--text-muted);"><%= freebmdRes.note %></span>
+                <% } %>
+                <% if (freebmdRes.birth) { %>
+                    <div style="margin-top:3px;">
+                        Birth: <% if (freebmdRes.birth.matched) { %><span style="color:#155724;">&#10003; <%= freebmdRes.birth.entry %></span><% } else { %><span style="color:#856404;">&#10007; Not found (<%= freebmdRes.birth.searched || '' %>)</span><% } %>
+                    </div>
+                <% } %>
+                <% if (freebmdRes.death) { %>
+                    <div style="margin-top:3px;">
+                        Death: <% if (freebmdRes.death.matched) { %><span style="color:#155724;">&#10003; <%= freebmdRes.death.entry %></span><% } else { %><span style="color:#856404;">&#10007; Not found (<%= freebmdRes.death.searched || '' %>)</span><% } %>
+                    </div>
+                <% } %>
+                <% if (freebmdRes.marriage) { %>
+                    <div style="margin-top:3px;">
+                        Marriage: <% if (freebmdRes.marriage.matched) { %><span style="color:#155724;">&#10003; <%= freebmdRes.marriage.entry %></span><% } else { %><span style="color:#856404;">&#10007; Not found (<%= freebmdRes.marriage.searched || '' %>)</span><% } %>
+                    </div>
+                <% } %>
+            </div>
+        <% } %>
+
+        <!-- AI Flags -->
+        <% if (gptReview || claudeReview) { %>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+                <% if (gptReview) { %>
+                <div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;border:1px solid #d1fae5;">
+                    <strong style="font-size:11px;color:#10a37f;">GPT-4o</strong>
+                    <% if (gptReview.confidence_adjustment && gptReview.confidence_adjustment !== 0) { %>
+                        <span style="font-size:11px;color:<%= gptReview.confidence_adjustment > 0 ? '#155724' : '#721c24' %>;margin-left:6px;">
+                            (<%= gptReview.confidence_adjustment > 0 ? '+' : '' %><%= gptReview.confidence_adjustment %>)
+                        </span>
+                    <% } %>
+                    <% if (gptReview.flags && gptReview.flags.length > 0) { %>
+                        <% gptReview.flags.forEach(function(flag) {
+                            var fc = flag.type === 'error' ? '#dc3545' : flag.type === 'warning' ? '#e67e22' : flag.type === 'confirmation' ? '#28a745' : '#6c757d';
+                        %>
+                            <div style="font-size:11px;margin-top:4px;color:<%= fc %>;">
+                                <% if (flag.type === 'error') { %>&#9888;<% } else if (flag.type === 'warning') { %>&#9888;<% } else if (flag.type === 'confirmation') { %>&#10003;<% } else { %>&#8226;<% } %>
+                                <%= flag.message %>
+                                <% if (flag.suggested_correction) { %><br><em style="color:#1a5276;">Suggestion: <%= flag.suggested_correction %></em><% } %>
+                            </div>
+                        <% }); %>
+                    <% } else { %>
+                        <div style="font-size:11px;margin-top:4px;color:#6c757d;">No flags</div>
+                    <% } %>
+                    <% if (gptReview.freebmd_assessment) { %>
+                        <div style="font-size:11px;margin-top:4px;color:#495057;"><em><%= gptReview.freebmd_assessment %></em></div>
+                    <% } %>
+                </div>
+                <% } else { %><div></div><% } %>
+
+                <% if (claudeReview) { %>
+                <div style="padding:8px 12px;background:#fef5f0;border-radius:6px;border:1px solid #fde8dc;">
+                    <strong style="font-size:11px;color:#c96442;">Claude Sonnet</strong>
+                    <% if (claudeReview.confidence_adjustment && claudeReview.confidence_adjustment !== 0) { %>
+                        <span style="font-size:11px;color:<%= claudeReview.confidence_adjustment > 0 ? '#155724' : '#721c24' %>;margin-left:6px;">
+                            (<%= claudeReview.confidence_adjustment > 0 ? '+' : '' %><%= claudeReview.confidence_adjustment %>)
+                        </span>
+                    <% } %>
+                    <% if (claudeReview.flags && claudeReview.flags.length > 0) { %>
+                        <% claudeReview.flags.forEach(function(flag) {
+                            var fc = flag.type === 'error' ? '#dc3545' : flag.type === 'warning' ? '#e67e22' : flag.type === 'confirmation' ? '#28a745' : '#6c757d';
+                        %>
+                            <div style="font-size:11px;margin-top:4px;color:<%= fc %>;">
+                                <% if (flag.type === 'error') { %>&#9888;<% } else if (flag.type === 'warning') { %>&#9888;<% } else if (flag.type === 'confirmation') { %>&#10003;<% } else { %>&#8226;<% } %>
+                                <%= flag.message %>
+                                <% if (flag.suggested_correction) { %><br><em style="color:#1a5276;">Suggestion: <%= flag.suggested_correction %></em><% } %>
+                            </div>
+                        <% }); %>
+                    <% } else { %>
+                        <div style="font-size:11px;margin-top:4px;color:#6c757d;">No flags</div>
+                    <% } %>
+                    <% if (claudeReview.freebmd_assessment) { %>
+                        <div style="font-size:11px;margin-top:4px;color:#495057;"><em><%= claudeReview.freebmd_assessment %></em></div>
+                    <% } %>
+                </div>
+                <% } else { %><div></div><% } %>
+            </div>
+
+            <!-- Manual Lookup Suggestions -->
+            <%
+              var allSuggestions = [];
+              if (gptReview && gptReview.manual_lookup_suggestions) allSuggestions = allSuggestions.concat(gptReview.manual_lookup_suggestions);
+              if (claudeReview && claudeReview.manual_lookup_suggestions) allSuggestions = allSuggestions.concat(claudeReview.manual_lookup_suggestions);
+              // Deduplicate
+              var uniqueSuggestions = [];
+              allSuggestions.forEach(function(s) { if (uniqueSuggestions.indexOf(s) === -1) uniqueSuggestions.push(s); });
+            %>
+            <% if (uniqueSuggestions.length > 0) { %>
+                <div style="margin-top:8px;padding:6px 12px;background:#e8f4f8;border-radius:6px;font-size:11px;">
+                    <strong style="color:#1a5276;">Manual Lookups:</strong>
+                    <ul style="margin:4px 0 0 16px;padding:0;">
+                        <% uniqueSuggestions.forEach(function(s) { %>
+                            <li style="margin-bottom:2px;"><%= s %></li>
+                        <% }); %>
+                    </ul>
+                </div>
+            <% } %>
+        <% } %>
+    </div>
+    <% }); %>
+
+    <!-- Gap Analysis -->
+    <%
+      var allGaps = [];
+      if (gptGaps.length > 0) gptGaps.forEach(function(g) { g._source = 'GPT-4o'; allGaps.push(g); });
+      if (claudeGaps.length > 0) claudeGaps.forEach(function(g) { g._source = 'Claude'; allGaps.push(g); });
+      // Merge by asc number
+      var gapsByAsc = {};
+      allGaps.forEach(function(g) {
+        if (!gapsByAsc[g.asc]) gapsByAsc[g.asc] = { asc: g.asc, role: g.role, suggestions: [] };
+        gapsByAsc[g.asc].suggestions.push({ source: g._source, text: g.suggestion });
+      });
+      var mergedGaps = Object.values(gapsByAsc).sort(function(a,b) { return a.asc - b.asc; });
+    %>
+    <% if (mergedGaps.length > 0) { %>
+        <h2 style="margin-top:24px;font-size:18px;color:var(--forest);">Gap Analysis &mdash; Missing Ancestors</h2>
+        <% mergedGaps.forEach(function(gap) { %>
+            <div class="card" style="margin-top:8px;border-left:4px solid #ffc107;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <strong style="font-size:14px;color:var(--forest);">#<%= gap.asc %> &mdash; <%= gap.role || 'Unknown' %></strong>
+                    <span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:#fff3cd;color:#856404;">Missing</span>
+                </div>
+                <% gap.suggestions.forEach(function(s) { %>
+                    <div style="font-size:12px;margin-top:6px;padding:6px 10px;background:#f8f9fa;border-radius:4px;">
+                        <span style="font-weight:700;color:<%= s.source === 'GPT-4o' ? '#10a37f' : '#c96442' %>;font-size:11px;"><%= s.source %>:</span>
+                        <span style="color:#495057;"><%= s.text %></span>
+                    </div>
+                <% }); %>
+            </div>
+        <% }); %>
+    <% } %>
+
+<% } else if (aiStatus !== 'running') { %>
+    <div class="card" style="margin-top:16px;text-align:center;padding:40px;">
+        <p style="font-size:15px;color:var(--text-muted);">No AI review results yet.</p>
+        <p style="font-size:13px;color:var(--text-muted);">Click "Run AI Review" to start the FreeBMD cross-reference and AI analysis pipeline.</p>
+    </div>
+<% } %>

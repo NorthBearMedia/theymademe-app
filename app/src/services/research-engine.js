@@ -753,8 +753,10 @@ class ResearchEngine {
     // Categorize sources
     this.sources = sources || [];
     this.fsSource = this.sources.find(s => s.sourceName === 'FamilySearch' && s.isAvailable());
+    this.freebmdSource = this.sources.find(s => s.sourceName === 'FreeBMD' && s.isAvailable());
+    this.freebmdFailCount = 0;
 
-    console.log(`[Engine] FS-only mode. FamilySearch=${!!this.fsSource}`);
+    console.log(`[Engine] Sources: FamilySearch=${!!this.fsSource}, FreeBMD=${!!this.freebmdSource}`);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────
@@ -3579,6 +3581,27 @@ class ResearchEngine {
       console.log(`[Engine] COMPLETE: ${ancestors.length} ancestors`);
       console.log(`[Engine] Verified/Customer: ${verified}, Probable: ${probable}, Possible: ${possible}, Suggested: ${suggested}`);
       console.log(`[Engine] ════════════════════════════════════════════════\n`);
+
+      // ── Phase 4: AI Review Pipeline (fire-and-forget) ──
+      const aiReviewer = require('./ai-reviewer');
+      const openaiAvail = require('./openai-client').isAvailable();
+      const claudeAvail = require('./claude-client').isAvailable();
+      if (openaiAvail || claudeAvail) {
+        console.log(`[Engine] ── Phase 4: AI Review Pipeline ──`);
+        console.log(`[Engine] GPT-4o: ${openaiAvail ? 'YES' : 'NO'}, Claude: ${claudeAvail ? 'YES' : 'NO'}`);
+        // Run async — don't block the completed status
+        aiReviewer.runFullReview(this.jobId).then(result => {
+          if (result.success) {
+            console.log(`[Engine] AI review completed successfully`);
+          } else {
+            console.log(`[Engine] AI review failed: ${result.error}`);
+          }
+        }).catch(err => {
+          console.error(`[Engine] AI review error: ${err.message}`);
+        });
+      } else {
+        console.log(`[Engine] No AI API keys configured — skipping Phase 4`);
+      }
 
     } catch (err) {
       console.error(`Research engine error for job ${this.jobId}:`, err);
