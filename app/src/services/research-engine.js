@@ -628,10 +628,12 @@ function scorePersonFacts(facts) {
 
 // Section 5 mapping: total points → percentage
 function computeFinalScore(points) {
-  if (points >= 55) return Math.min(95, 90 + Math.min(5, points - 55));
-  if (points >= 35) return 75 + Math.min(14, points - 35);
-  if (points >= 15) return Math.round(50 + Math.min(24, (points - 15) * 24 / 19));
-  if (points >= 5)  return Math.round(30 + Math.min(19, (points - 5) * 19 / 9));
+  // Tightened thresholds — require stronger evidence for higher confidence
+  if (points >= 60) return Math.min(95, 90 + Math.min(5, points - 60));      // Verified: 60+ pts
+  if (points >= 45) return Math.min(89, 75 + Math.min(14, points - 45));      // Probable: 45-59 pts
+  if (points >= 25) return Math.min(74, 50 + Math.min(24, points - 25));      // Possible: 25-44 pts
+  if (points >= 10) return Math.min(49, 30 + Math.min(19, points - 10));      // Suggested: 10-24 pts
+  if (points <= -10) return 0;                                                 // Heavily penalized
   return 25;
 }
 
@@ -855,7 +857,9 @@ class ResearchEngine {
           points += 5;
           notes.push(`Surname: ${ancestorParts.surname} matches child ${childParts.surname} (+5)`);
         } else {
-          notes.push(`Surname: ${ancestorParts.surname} vs child ${childParts.surname} (no match)`);
+          // Father surname MUST match child's — strong penalty
+          points -= 15;
+          notes.push(`REJECT: Father surname ${ancestorParts.surname} ≠ child ${childParts.surname} (-15)`);
         }
       } else if (!isFather && ancestorParts.surname) {
         // Mother — maiden name match is worth less (less certain further back)
@@ -971,17 +975,24 @@ class ResearchEngine {
 
     if (ancestorYear && childYear) {
       const gap = childYear - ancestorYear;
-      if (gap >= 18 && gap <= 45) {
+      if (gap < 0) {
+        // Parent born AFTER child — impossible
+        points -= 50;
+        notes.push(`REJECT: parent born ${Math.abs(gap)}yrs AFTER child — impossible (-50)`);
+      } else if (gap < 15 || gap > 55) {
+        // Implausible generation gap (e.g. 158 years)
+        points -= 30;
+        notes.push(`REJECT: ${gap}yr generation gap — implausible (-30)`);
+      } else if (gap >= 18 && gap <= 45) {
         points += 5;
         notes.push(`Age: born ~${gap}yrs before child — plausible (+5)`);
         if (gap >= 22 && gap <= 35) {
           points += 2;
           notes.push(`Age: sweet spot (+2)`);
         }
-      } else if (gap > 0) {
-        notes.push(`Age: born ~${gap}yrs before child — outside typical range`);
       } else {
-        notes.push(`Age: born ${Math.abs(gap)}yrs after child — implausible`);
+        // 15-17 or 46-55 — unusual but not impossible
+        notes.push(`Age: born ~${gap}yrs before child — unusual but possible`);
       }
     } else {
       notes.push('Age: no birth years to compare');
@@ -1821,6 +1832,11 @@ class ResearchEngine {
     // If cross-check failed but we had evidence, cap it
     if (marriageEvidence && crossCheckResult && !crossCheckResult.verified) {
       confidenceScore = Math.min(confidenceScore, 60); // Can't be higher than Possible
+    }
+
+    // If NO marriage evidence found at all, cap at 65% — parents need a provable marriage
+    if (!marriageEvidence && confidenceScore > 65) {
+      confidenceScore = 65;
     }
 
     const confidenceLevel = this.getConfidenceLevel(confidenceScore);
@@ -2939,14 +2955,29 @@ class ResearchEngine {
           }
         }
 
-        // Auto-accept if score > 50, or if customer data
-        const autoAccepted = confidenceScore > 50 ? 1 : 0;
-
-        // Detect missing info
-        const missingInfo = [];
+        // ── Data quality gate: cap confidence for poorly identified ancestors ──
+        const ancestorNameParts = parseNameParts(rec.name || '');
+        const hasSurname = !!(ancestorNameParts.surname && ancestorNameParts.surname.trim().length > 1);
         const hasLocation = !!(rec.birth_place || resolvedPlace);
         const hasBirthYear = !!(rec.birth_date);
         const hasSourceRecords = sourceResult.points > 0;
+
+        if (!hasSurname) {
+          // No surname (e.g. just "Sarah") — insufficient to verify identity
+          confidenceScore = Math.min(confidenceScore, 49);
+          confidenceLevel = this.getConfidenceLevel(confidenceScore);
+        }
+        if (!hasSurname && !hasBirthYear && !hasLocation) {
+          // Virtually no identifying data
+          confidenceScore = Math.min(confidenceScore, 35);
+          confidenceLevel = this.getConfidenceLevel(confidenceScore);
+        }
+
+        // Auto-accept only at 75%+ (Probable or above) — Possible stays for manual review
+        const autoAccepted = confidenceScore >= 75 ? 1 : 0;
+
+        // Detect missing info
+        const missingInfo = [];
 
         if (!hasLocation && confidenceScore < 75) {
           missingInfo.push({ type: 'location', message: 'Birth location unknown \u2014 adding a county would improve accuracy.' });
