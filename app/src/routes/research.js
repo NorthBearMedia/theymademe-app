@@ -7,6 +7,25 @@ const requireAuth = require('../middleware/auth');
 
 const router = express.Router();
 
+// Helpers for AI feedback capture
+function extractFeedbackFields(ancestor) {
+  const nameParts = (ancestor.name || '').split(' ');
+  const surname = nameParts[nameParts.length - 1] || '';
+  const birthYear = ancestor.birth_date ? parseInt(String(ancestor.birth_date).match(/\d{4}/)?.[0]) : null;
+  return {
+    ancestor_name: ancestor.name,
+    ancestor_surname: surname,
+    ancestor_birth_year: birthYear,
+    ancestor_location: ancestor.birth_place || '',
+  };
+}
+
+function extractYear(dateStr) {
+  if (!dateStr) return null;
+  const m = String(dateStr).match(/\b(1[6-9]\d{2}|20[0-2]\d)\b/);
+  return m ? parseInt(m[1]) : null;
+}
+
 // List all research jobs
 router.get('/', requireAuth, (req, res) => {
   const jobs = db.listResearchJobs(100, 0);
@@ -217,6 +236,7 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
     confidence_level: a.confidence_level,
     accepted: a.accepted || 0,
     missing_info: a.missing_info || [],
+    corrections_log: a.corrections_log || [],
   }));
 
   // Completion counter: total slots in the tree and accepted count
@@ -242,6 +262,14 @@ router.post('/:id/ancestor/:ancestorId/accept', requireAuth, async (req, res) =>
 
   const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
   if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  // Capture AI learning feedback
+  db.addAIFeedback({
+    job_id: req.params.id, asc_number: ancestor.ascendancy_number, action_type: 'accept',
+    ...extractFeedbackFields(ancestor),
+    original_data: { name: ancestor.name, birth_date: ancestor.birth_date, birth_place: ancestor.birth_place, death_date: ancestor.death_date, death_place: ancestor.death_place, confidence_score: ancestor.confidence_score, fs_person_id: ancestor.fs_person_id },
+    corrected_data: {},
+  });
 
   // Mark as accepted
   db.updateAncestorById(parseInt(req.params.ancestorId, 10), { accepted: 1 });
@@ -293,6 +321,14 @@ router.post('/:id/ancestor/:ancestorId/update-info', requireAuth, (req, res) => 
   if (death_place !== undefined && death_place !== ancestor.death_place) updates.death_place = death_place;
 
   if (Object.keys(updates).length > 0) {
+    // Capture AI learning feedback
+    db.addAIFeedback({
+      job_id: req.params.id, asc_number: ancestor.ascendancy_number, action_type: 'correct',
+      ...extractFeedbackFields(ancestor),
+      original_data: { birth_date: ancestor.birth_date, birth_place: ancestor.birth_place, death_date: ancestor.death_date, death_place: ancestor.death_place },
+      corrected_data: updates,
+    });
+
     // Clear resolved missing_info items
     let missingInfo = ancestor.missing_info || [];
     if (typeof missingInfo === 'string') {
@@ -329,6 +365,14 @@ router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res
   if (!ancestor) return res.status(404).send('Ancestor not found');
 
   const ascNumber = ancestor.ascendancy_number;
+
+  // Capture AI learning feedback
+  db.addAIFeedback({
+    job_id: req.params.id, asc_number: ascNumber, action_type: 'reject',
+    ...extractFeedbackFields(ancestor),
+    original_data: { name: ancestor.name, birth_date: ancestor.birth_date, birth_place: ancestor.birth_place, death_date: ancestor.death_date, death_place: ancestor.death_place, confidence_score: ancestor.confidence_score, fs_person_id: ancestor.fs_person_id },
+    corrected_data: {},
+  });
 
   // Mark current ancestor's FS ID as rejected in search_candidates
   if (ancestor.fs_person_id) {
@@ -394,6 +438,16 @@ router.post('/:id/ancestor/:ascNumber/select-candidate', requireAuth, async (req
 
   // Delete existing ancestor at this position (if any — e.g. a "not found" placeholder)
   const existing = db.getAncestorByAscNumber(req.params.id, ascNumber);
+
+  // Capture AI learning feedback
+  if (existing) {
+    db.addAIFeedback({
+      job_id: req.params.id, asc_number: ascNumber, action_type: 'select_alternative',
+      ...extractFeedbackFields(existing),
+      original_data: { name: existing.name, birth_date: existing.birth_date, birth_place: existing.birth_place, death_date: existing.death_date, death_place: existing.death_place, confidence_score: existing.confidence_score, fs_person_id: existing.fs_person_id },
+      corrected_data: { name: candidate.name, fs_person_id: candidate.fs_person_id, computed_score: candidate.computed_score },
+    });
+  }
   if (existing) {
     db.deleteDescendantAncestors(req.params.id, ascNumber);
   }
@@ -522,6 +576,127 @@ router.get('/:id/ai-review/status', requireAuth, (req, res) => {
     progress_current: job.progress_current || 0,
     progress_total: job.progress_total || 0,
   });
+});
+
+// Undo an AI auto-correction
+router.post('/:id/ancestor/:ascNumber/undo-correction', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ascNumber = parseInt(req.params.ascNumber, 10);
+  const ancestor = db.getAncestorByAscNumber(req.params.id, ascNumber);
+  if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  const { correction_index } = req.body;
+  const idx = parseInt(correction_index, 10);
+  const log = ancestor.corrections_log || [];
+
+  if (idx < 0 || idx >= log.length || log[idx].undone) {
+    return res.status(400).send('Invalid or already undone correction');
+  }
+
+  const entry = log[idx];
+
+  // Revert the value
+  if (entry.type === 'confidence_adjustment') {
+    db.updateAncestorByAscNumber(req.params.id, ascNumber, {
+      confidence_score: entry.old_value,
+    });
+  } else if (entry.type === 'field_correction' && entry.field) {
+    db.updateAncestorByAscNumber(req.params.id, ascNumber, {
+      [entry.field]: entry.old_value,
+    });
+  }
+
+  // Mark as undone in log
+  log[idx].undone = true;
+  log[idx].undone_at = new Date().toISOString();
+  db.updateAncestorByAscNumber(req.params.id, ascNumber, { corrections_log: log });
+
+  // Record feedback so the AI learns this correction was wrong
+  db.addAIFeedback({
+    job_id: req.params.id,
+    asc_number: ascNumber,
+    action_type: 'reject',
+    ...extractFeedbackFields(ancestor),
+    original_data: { corrected_to: entry.new_value, correction_type: entry.type },
+    corrected_data: { reverted_to: entry.old_value },
+    admin_notes: 'Undid AI auto-correction',
+  });
+
+  console.log(`[Undo] Reverted correction #${idx} for asc#${ascNumber}: ${ancestor.name}`);
+
+  // Redirect back to referring page
+  const referer = req.get('Referer') || `/admin/research/${req.params.id}/ai-review`;
+  res.redirect(referer);
+});
+
+// Apply an AI suggestion (one-click)
+router.post('/:id/ancestor/:ascNumber/apply-suggestion', requireAuth, (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+
+  const ascNumber = parseInt(req.params.ascNumber, 10);
+  const ancestor = db.getAncestorByAscNumber(req.params.id, ascNumber);
+  if (!ancestor) return res.status(404).send('Ancestor not found');
+
+  const { suggestion_type, field, value, gpt_adj, claude_adj } = req.body;
+
+  const log = ancestor.corrections_log || [];
+
+  if (suggestion_type === 'confidence_adjustment') {
+    const gAdj = parseInt(gpt_adj) || 0;
+    const cAdj = parseInt(claude_adj) || 0;
+    const avgAdj = Math.round((gAdj + cAdj) / 2);
+    const oldScore = ancestor.confidence_score || 0;
+    const newScore = Math.max(0, Math.min(100, oldScore + avgAdj));
+
+    db.updateAncestorByAscNumber(req.params.id, ascNumber, { confidence_score: newScore });
+
+    log.push({
+      type: 'confidence_adjustment',
+      source: 'admin_applied_suggestion',
+      old_value: oldScore,
+      new_value: newScore,
+      gpt_adj: gAdj,
+      claude_adj: cAdj,
+      applied_at: new Date().toISOString(),
+      undone: false,
+    });
+  } else if (suggestion_type === 'field_correction' && field && value) {
+    const { parseCorrection } = require('../services/ai-reviewer');
+    const oldValue = ancestor[field] || '';
+
+    db.updateAncestorByAscNumber(req.params.id, ascNumber, { [field]: value });
+
+    log.push({
+      type: 'field_correction',
+      source: 'admin_applied_suggestion',
+      field,
+      old_value: oldValue,
+      new_value: value,
+      applied_at: new Date().toISOString(),
+      undone: false,
+    });
+  }
+
+  db.updateAncestorByAscNumber(req.params.id, ascNumber, { corrections_log: log });
+
+  // Record feedback so AI learns from admin applying the suggestion
+  db.addAIFeedback({
+    job_id: req.params.id,
+    asc_number: ascNumber,
+    action_type: 'correct',
+    ...extractFeedbackFields(ancestor),
+    original_data: { [field || 'confidence']: ancestor[field] || ancestor.confidence_score },
+    corrected_data: { [field || 'confidence']: value || req.body.value },
+    admin_notes: 'Applied AI suggestion',
+  });
+
+  console.log(`[Apply-Suggestion] Applied ${suggestion_type} for asc#${ascNumber}: ${ancestor.name}`);
+
+  const referer = req.get('Referer') || `/admin/research/${req.params.id}/ai-review`;
+  res.redirect(referer);
 });
 
 // View research results

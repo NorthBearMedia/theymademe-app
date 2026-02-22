@@ -56,9 +56,20 @@
           var badgeColor = ancestor.confidence_score >= 90 ? '#155724' : ancestor.confidence_score >= 75 ? '#1a5276' : ancestor.confidence_score >= 50 ? '#856404' : '#721c24';
           var badgeBg = ancestor.confidence_score >= 90 ? '#d4edda' : ancestor.confidence_score >= 75 ? '#d6eaf8' : ancestor.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
         %>
-        <span style="display:inline-block;padding:6px 16px;border-radius:12px;font-size:14px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;">
-            <%= ancestor.confidence_score %>% &mdash; <%= ancestor.confidence_level %>
-        </span>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span style="display:inline-block;padding:6px 16px;border-radius:12px;font-size:14px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;">
+                <%= ancestor.confidence_score %>% &mdash; <%= ancestor.confidence_level %>
+            </span>
+            <%
+              var corrLog = ancestor.corrections_log || [];
+              var hasActiveAICorrections = corrLog.some(function(c) { return c.source === 'ai_auto' && !c.undone; });
+            %>
+            <% if (hasActiveAICorrections) { %>
+                <span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;background:#dbeafe;color:#1e40af;">
+                    AI Auto-Corrected
+                </span>
+            <% } %>
+        </div>
     </div>
 
     <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
@@ -493,6 +504,50 @@
     <% ancestor.conflicts.forEach(function(c) { %>
         <div style="padding:10px;border-bottom:1px solid var(--border);font-size:13px;">
             <strong><%= c.field %>:</strong> <%= c.description %>
+        </div>
+    <% }); %>
+</div>
+<% } %>
+
+<%
+  var corrections = ancestor.corrections_log || [];
+%>
+<% if (corrections.length > 0) { %>
+<div class="card">
+    <h3>Corrections Log (<%= corrections.length %>)</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Chronological record of all changes to this ancestor's data.</p>
+    <% corrections.forEach(function(c, idx) {
+        var sourceColor = c.source === 'ai_auto' ? '#3b82f6' : c.source === 'admin_applied_suggestion' ? '#f59e0b' : '#28a745';
+        var sourceBg = c.source === 'ai_auto' ? '#dbeafe' : c.source === 'admin_applied_suggestion' ? '#fef3c7' : '#d4edda';
+        var sourceLabel = c.source === 'ai_auto' ? 'AI Auto' : c.source === 'admin_applied_suggestion' ? 'Admin (AI suggestion)' : 'Admin';
+        var isUndone = c.undone;
+    %>
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;<%= isUndone ? 'opacity:0.5;' : '' %>">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;background:<%= sourceBg %>;color:<%= sourceColor %>;"><%= sourceLabel %></span>
+                    <% if (c.type === 'confidence_adjustment') { %>
+                        <span <% if (isUndone) { %>style="text-decoration:line-through;"<% } %>>
+                            Confidence: <%= c.old_value %>% &rarr; <%= c.new_value %>%
+                        </span>
+                    <% } else if (c.type === 'field_correction') { %>
+                        <span <% if (isUndone) { %>style="text-decoration:line-through;"<% } %>>
+                            <%= c.field %>: "<%= c.old_value || '(empty)' %>" &rarr; "<%= c.new_value %>"
+                        </span>
+                        <% if (c.freebmd_confirmed) { %><span style="font-size:11px;color:#155724;margin-left:4px;">FreeBMD confirmed</span><% } %>
+                    <% } %>
+                    <% if (isUndone) { %><span style="font-size:11px;color:#dc3545;margin-left:6px;">UNDONE</span><% } %>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:11px;color:var(--text-muted);"><%= c.applied_at ? new Date(c.applied_at).toLocaleDateString() : '' %></span>
+                    <% if (!isUndone && c.source === 'ai_auto') { %>
+                        <form action="/admin/research/<%= job.id %>/ancestor/<%= ancestor.ascendancy_number %>/undo-correction" method="POST" style="display:inline;">
+                            <input type="hidden" name="correction_index" value="<%= idx %>">
+                            <button type="submit" class="btn btn-sm" style="background:#dc3545;color:white;font-size:10px;padding:2px 8px;">Undo</button>
+                        </form>
+                    <% } %>
+                </div>
+            </div>
         </div>
     <% }); %>
 </div>

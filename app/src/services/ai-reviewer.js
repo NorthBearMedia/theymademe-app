@@ -235,6 +235,33 @@ function buildAIInput(jobId) {
     }
   }
 
+  // ── Learning Memory: fetch relevant admin feedback ──
+  const surnames = [...new Set(ancestors.map(a => {
+    const parts = (a.name || '').split(' ');
+    return parts[parts.length - 1];
+  }).filter(Boolean))];
+
+  const locations = [...new Set(ancestors.map(a => a.birth_place).filter(Boolean))];
+
+  const birthYears = ancestors.map(a => extractYear(a.birth_date)).filter(Boolean);
+  const era = birthYears.length > 0
+    ? { min: Math.min(...birthYears), max: Math.max(...birthYears) }
+    : {};
+
+  const feedbackHistory = db.getRelevantFeedback(surnames, locations, era, 50);
+
+  // Compact format for token efficiency
+  const adminFeedback = feedbackHistory.map(f => ({
+    action: f.action_type,
+    name: f.ancestor_name,
+    surname: f.ancestor_surname,
+    location: f.ancestor_location,
+    birth_year: f.ancestor_birth_year,
+    original: f.original_data,
+    corrected: f.corrected_data,
+    date: f.created_at,
+  }));
+
   return {
     job: {
       id: job.id,
@@ -254,6 +281,7 @@ function buildAIInput(jobId) {
         uncertain: ancestors.filter(a => a.confidence_level === 'Uncertain' || a.confidence_level === 'Unknown').length,
       },
     },
+    admin_feedback_history: adminFeedback,
   };
 }
 
@@ -296,6 +324,17 @@ You are the AI quality reviewer. After the automated engine completes, you revie
 - FamilySearch data quality varies enormously — some records are well-sourced, others are speculative
 - Discovery methods matter: "tree_parents_verified" (found via tree traversal with source-verified parents) is much more reliable than "direct_search_verified" (found by surname search)
 - The human admin does the FINAL review before sending results to the customer — your job is to flag issues and suggest actions, not to make final decisions
+
+## ADMIN FEEDBACK HISTORY (Learning Memory)
+
+The input payload may include an "admin_feedback_history" array. This contains past decisions made by the human admin on similar ancestors (matched by surname, location, and era). Use this to learn patterns:
+
+- **accept**: Admin confirmed this ancestor was correct. If you see many accepts for a surname/location combo, the research engine is reliable there.
+- **reject**: Admin rejected this ancestor — the person was WRONG. Look for patterns: if a surname in an area is repeatedly rejected, the search strategy may be unreliable for that family. Be more skeptical of similar matches.
+- **correct**: Admin manually corrected data (birth date, place, etc.). The "original" shows what the engine found, "corrected" shows the truth. Use this to calibrate — if the engine consistently gets birth places wrong in a region, flag similar uncertainties.
+- **select_alternative**: Admin chose a different candidate over the one the engine picked. "original" = rejected person, "corrected" = the person they chose instead.
+
+Weight recent feedback more heavily. If no feedback history is provided, proceed without it.
 
 ## OUTPUT FORMAT
 
@@ -452,6 +491,260 @@ function storeReviewResults(jobId, aiResults) {
   db.updateResearchJob(jobId, { ai_review_summary: summary });
 }
 
+// ─── Auto-Correction Helpers ────────────────────────────────────
+
+/**
+ * Normalized fuzzy match between two AI suggestion strings.
+ * Returns true if they're recommending the same correction.
+ */
+function fuzzyMatchCorrection(a, b) {
+  if (!a || !b) return false;
+  const normA = a.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  const normB = b.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+
+  // Exact match
+  if (normA === normB) return true;
+
+  // One contains the other
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+
+  // Extract year from both — if same year mentioned, likely same correction
+  const yearA = normA.match(/\b(1[6-9]\d{2}|20[0-2]\d)\b/);
+  const yearB = normB.match(/\b(1[6-9]\d{2}|20[0-2]\d)\b/);
+  if (yearA && yearB && yearA[1] === yearB[1]) {
+    // Same year + some word overlap
+    const wordsA = new Set(normA.split(/\s+/));
+    const wordsB = new Set(normB.split(/\s+/));
+    const overlap = [...wordsA].filter(w => wordsB.has(w) && w.length > 2).length;
+    if (overlap >= 2) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Check if a FreeBMD result confirms an AI-suggested correction.
+ * E.g. if AI suggests birth year should be 1909, check FreeBMD birth.year === 1909.
+ */
+function checkFreeBMDConfirms(suggestion, freebmdData) {
+  if (!suggestion || !freebmdData) return false;
+  const suggestedYear = suggestion.match(/\b(1[6-9]\d{2}|20[0-2]\d)\b/);
+  if (!suggestedYear) return false;
+  const year = parseInt(suggestedYear[1]);
+
+  // Check birth
+  if (freebmdData.birth?.matched && freebmdData.birth.year === year) return true;
+  // Check death
+  if (freebmdData.death?.matched && freebmdData.death.year === year) return true;
+
+  return false;
+}
+
+/**
+ * Parse a suggested correction string into a field update.
+ * Conservative — better to miss than misinterpret.
+ *
+ * Returns { field, value } or null if can't parse.
+ */
+function parseCorrection(suggestion) {
+  if (!suggestion) return null;
+
+  // "birth year should be 1909" or "birth date: 1909"
+  const birthYearMatch = suggestion.match(/birth\s*(?:year|date)\s*(?:should\s*be|:|-|→|to)\s*~?\s*(1[6-9]\d{2}|20[0-2]\d)/i);
+  if (birthYearMatch) return { field: 'birth_date', value: birthYearMatch[1] };
+
+  // "death year should be 1963"
+  const deathYearMatch = suggestion.match(/death\s*(?:year|date)\s*(?:should\s*be|:|-|→|to)\s*~?\s*(1[6-9]\d{2}|20[0-2]\d)/i);
+  if (deathYearMatch) return { field: 'death_date', value: deathYearMatch[1] };
+
+  // "birth place should be Derby, Derbyshire"
+  const birthPlaceMatch = suggestion.match(/birth\s*place\s*(?:should\s*be|:|-|→|to)\s*["']?([^"'\n]+?)["']?\s*$/i);
+  if (birthPlaceMatch) return { field: 'birth_place', value: birthPlaceMatch[1].trim() };
+
+  // "death place should be Pinxton, Derbyshire"
+  const deathPlaceMatch = suggestion.match(/death\s*place\s*(?:should\s*be|:|-|→|to)\s*["']?([^"'\n]+?)["']?\s*$/i);
+  if (deathPlaceMatch) return { field: 'death_place', value: deathPlaceMatch[1].trim() };
+
+  return null;
+}
+
+/**
+ * Compare GPT and Claude reviews, apply auto-corrections where both agree,
+ * and generate suggestions where partial agreement.
+ */
+function applyAICorrections(jobId, gptResult, claudeResult) {
+  const ancestors = db.getAncestors(jobId);
+  const corrections = [];  // auto-applied
+  const suggestions = [];  // for admin one-click
+
+  for (const anc of ancestors) {
+    const asc = anc.ascendancy_number;
+
+    // NEVER auto-correct: Subject (#1) or Customer Data ancestors
+    if (asc === 1 || anc.confidence_level === 'Customer Data') continue;
+
+    const gptReview = gptResult?.ancestor_reviews?.find(r => r.asc === asc);
+    const claudeReview = claudeResult?.ancestor_reviews?.find(r => r.asc === asc);
+    if (!gptReview && !claudeReview) continue;
+
+    // ── Confidence adjustments ──
+    const gptAdj = gptReview?.confidence_adjustment || 0;
+    const claudeAdj = claudeReview?.confidence_adjustment || 0;
+
+    if (gptAdj !== 0 && claudeAdj !== 0 && Math.abs(gptAdj - claudeAdj) <= 2) {
+      // Both models recommend adjustment within ±2 of each other → auto-apply average
+      const avgAdj = Math.round((gptAdj + claudeAdj) / 2);
+      if (avgAdj !== 0) {
+        const oldScore = anc.confidence_score || 0;
+        const newScore = Math.max(0, Math.min(100, oldScore + avgAdj));
+
+        if (newScore !== oldScore) {
+          // Apply
+          db.updateAncestorByAscNumber(jobId, asc, { confidence_score: newScore });
+
+          // Log in corrections_log
+          const log = anc.corrections_log || [];
+          log.push({
+            type: 'confidence_adjustment',
+            source: 'ai_auto',
+            old_value: oldScore,
+            new_value: newScore,
+            gpt_adj: gptAdj,
+            claude_adj: claudeAdj,
+            applied_at: new Date().toISOString(),
+            undone: false,
+          });
+          db.updateAncestorByAscNumber(jobId, asc, { corrections_log: log });
+
+          corrections.push({
+            asc,
+            name: anc.name,
+            type: 'confidence_adjustment',
+            old_value: oldScore,
+            new_value: newScore,
+            gpt_adj: gptAdj,
+            claude_adj: claudeAdj,
+          });
+        }
+      }
+    } else if ((gptAdj !== 0 || claudeAdj !== 0) && Math.abs(gptAdj - claudeAdj) > 2) {
+      // Models disagree on direction/magnitude → suggest
+      suggestions.push({
+        asc,
+        name: anc.name,
+        type: 'confidence_adjustment',
+        gpt_adj: gptAdj,
+        claude_adj: claudeAdj,
+        current: anc.confidence_score || 0,
+      });
+    }
+
+    // ── Field corrections (from flags with suggested_correction) ──
+    const gptFlags = (gptReview?.flags || []).filter(f => f.suggested_correction);
+    const claudeFlags = (claudeReview?.flags || []).filter(f => f.suggested_correction);
+
+    for (const gFlag of gptFlags) {
+      // Find matching Claude flag
+      const matchingClaude = claudeFlags.find(cf =>
+        fuzzyMatchCorrection(gFlag.suggested_correction, cf.suggested_correction)
+      );
+
+      const parsed = parseCorrection(gFlag.suggested_correction);
+      if (!parsed) continue;
+
+      if (matchingClaude) {
+        // Both models agree on this correction
+        const freebmdConfirms = checkFreeBMDConfirms(gFlag.suggested_correction, anc.freebmd_results);
+
+        if (freebmdConfirms) {
+          // Triple confirmation: GPT + Claude + FreeBMD → auto-apply
+          const oldValue = anc[parsed.field] || '';
+          db.updateAncestorByAscNumber(jobId, asc, { [parsed.field]: parsed.value });
+
+          const log = anc.corrections_log || [];
+          log.push({
+            type: 'field_correction',
+            source: 'ai_auto',
+            field: parsed.field,
+            old_value: oldValue,
+            new_value: parsed.value,
+            gpt_flag: gFlag.message,
+            claude_flag: matchingClaude.message,
+            freebmd_confirmed: true,
+            applied_at: new Date().toISOString(),
+            undone: false,
+          });
+          db.updateAncestorByAscNumber(jobId, asc, { corrections_log: log });
+
+          corrections.push({
+            asc,
+            name: anc.name,
+            type: 'field_correction',
+            field: parsed.field,
+            old_value: oldValue,
+            new_value: parsed.value,
+            freebmd_confirmed: true,
+          });
+        } else {
+          // Both agree but no FreeBMD confirmation → suggest
+          suggestions.push({
+            asc,
+            name: anc.name,
+            type: 'field_correction',
+            field: parsed.field,
+            current_value: anc[parsed.field] || '',
+            suggested_value: parsed.value,
+            gpt_message: gFlag.message,
+            claude_message: matchingClaude.message,
+            freebmd_confirmed: false,
+          });
+        }
+      } else {
+        // Only GPT flags this → suggest (lower confidence)
+        suggestions.push({
+          asc,
+          name: anc.name,
+          type: 'field_correction',
+          field: parsed.field,
+          current_value: anc[parsed.field] || '',
+          suggested_value: parsed.value,
+          gpt_message: gFlag.message,
+          claude_message: null,
+          freebmd_confirmed: false,
+          single_model: true,
+        });
+      }
+    }
+
+    // Check Claude-only flags (not matched by GPT)
+    for (const cFlag of claudeFlags) {
+      const alreadyMatched = gptFlags.some(gf =>
+        fuzzyMatchCorrection(gf.suggested_correction, cFlag.suggested_correction)
+      );
+      if (alreadyMatched) continue;
+
+      const parsed = parseCorrection(cFlag.suggested_correction);
+      if (!parsed) continue;
+
+      suggestions.push({
+        asc,
+        name: anc.name,
+        type: 'field_correction',
+        field: parsed.field,
+        current_value: anc[parsed.field] || '',
+        suggested_value: parsed.value,
+        gpt_message: null,
+        claude_message: cFlag.message,
+        freebmd_confirmed: false,
+        single_model: true,
+      });
+    }
+  }
+
+  console.log(`[AI-Review] Auto-corrections: ${corrections.length}, Suggestions: ${suggestions.length}`);
+  return { corrections, suggestions };
+}
+
 // ─── Main Entry Point ───────────────────────────────────────────────
 
 /**
@@ -488,6 +781,17 @@ async function runFullReview(jobId) {
     console.log('[AI-Review] Storing review results');
     storeReviewResults(jobId, aiResults);
 
+    // Step 5: Apply auto-corrections where both models agree
+    console.log('[AI-Review] Step 5: Applying auto-corrections');
+    const correctionResults = applyAICorrections(jobId, aiResults.gpt, aiResults.claude);
+
+    // Store correction/suggestion summary alongside AI review
+    const existingJob = db.getResearchJob(jobId);
+    const summary = existingJob.ai_review_summary || {};
+    summary.ai_corrections = correctionResults.corrections;
+    summary.ai_suggestions = correctionResults.suggestions;
+    db.updateResearchJob(jobId, { ai_review_summary: summary });
+
     db.updateResearchJob(jobId, { ai_review_status: 'completed' });
     db.updateJobProgress(jobId, 'AI review complete', 3, 3);
     console.log(`[AI-Review] Full review complete for job ${jobId}`);
@@ -509,5 +813,7 @@ module.exports = {
   buildAIInput,
   runAIReviews,
   storeReviewResults,
+  applyAICorrections,
+  parseCorrection,
   SYSTEM_PROMPT,
 };

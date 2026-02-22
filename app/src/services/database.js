@@ -142,6 +142,31 @@ function initialize() {
   if (!hasColumn('research_jobs', 'ai_review_status')) {
     conn.exec(`ALTER TABLE research_jobs ADD COLUMN ai_review_status TEXT DEFAULT 'none'`);
   }
+
+  // AI corrections audit trail
+  if (!hasColumn('ancestors', 'corrections_log')) {
+    conn.exec(`ALTER TABLE ancestors ADD COLUMN corrections_log TEXT DEFAULT '[]'`);
+  }
+
+  // AI feedback / learning memory (global knowledge base)
+  conn.exec(`
+    CREATE TABLE IF NOT EXISTS ai_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id TEXT,
+      asc_number INTEGER,
+      action_type TEXT NOT NULL,
+      ancestor_name TEXT,
+      ancestor_surname TEXT,
+      ancestor_birth_year INTEGER,
+      ancestor_location TEXT,
+      original_data TEXT DEFAULT '{}',
+      corrected_data TEXT DEFAULT '{}',
+      admin_notes TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_surname ON ai_feedback(ancestor_surname);
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_location ON ai_feedback(ancestor_location);
+  `);
 }
 
 // Settings
@@ -229,6 +254,7 @@ function getAncestors(researchJobId) {
     if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
     if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
     if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
+    if (row.corrections_log) try { row.corrections_log = JSON.parse(row.corrections_log); } catch(e) { row.corrections_log = []; }
     return row;
   });
 }
@@ -244,6 +270,7 @@ function getAncestorById(id) {
   if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
   if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
   if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
+  if (row.corrections_log) try { row.corrections_log = JSON.parse(row.corrections_log); } catch(e) { row.corrections_log = []; }
   return row;
 }
 
@@ -267,6 +294,7 @@ function getAncestorByAscNumber(researchJobId, ascNumber) {
   if (row.missing_info) try { row.missing_info = JSON.parse(row.missing_info); } catch(e) { row.missing_info = []; }
   if (row.ai_review) try { row.ai_review = JSON.parse(row.ai_review); } catch(e) { row.ai_review = {}; }
   if (row.freebmd_results) try { row.freebmd_results = JSON.parse(row.freebmd_results); } catch(e) { row.freebmd_results = {}; }
+  if (row.corrections_log) try { row.corrections_log = JSON.parse(row.corrections_log); } catch(e) { row.corrections_log = []; }
   return row;
 }
 
@@ -408,6 +436,72 @@ function getJobStats() {
   };
 }
 
+// AI Feedback / Learning Memory
+function addAIFeedback(entry) {
+  getDb().prepare(`
+    INSERT INTO ai_feedback (
+      job_id, asc_number, action_type, ancestor_name, ancestor_surname,
+      ancestor_birth_year, ancestor_location, original_data, corrected_data, admin_notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    entry.job_id, entry.asc_number, entry.action_type,
+    entry.ancestor_name || '', entry.ancestor_surname || '',
+    entry.ancestor_birth_year || null, entry.ancestor_location || '',
+    JSON.stringify(entry.original_data || {}),
+    JSON.stringify(entry.corrected_data || {}),
+    entry.admin_notes || ''
+  );
+}
+
+function getRelevantFeedback(surnames = [], locations = [], era = {}, limit = 50) {
+  const conn = getDb();
+  const surnameList = surnames.map(s => s.toLowerCase().trim()).filter(Boolean);
+  const locationList = locations.map(l => l.toLowerCase().trim()).filter(Boolean);
+
+  // Fetch recent feedback, score and sort in JS
+  const rows = conn.prepare('SELECT * FROM ai_feedback ORDER BY created_at DESC LIMIT 500').all();
+
+  const scored = rows.map(row => {
+    let score = 0;
+    const rowSurname = (row.ancestor_surname || '').toLowerCase();
+    const rowLocation = (row.ancestor_location || '').toLowerCase();
+    const rowYear = row.ancestor_birth_year;
+
+    if (surnameList.some(s => s === rowSurname)) score += 30;
+    else if (surnameList.some(s => rowSurname.includes(s) || s.includes(rowSurname))) score += 15;
+
+    if (locationList.some(l => rowLocation.includes(l) || l.includes(rowLocation))) score += 20;
+
+    if (rowYear && era.min && era.max) {
+      if (rowYear >= era.min - 50 && rowYear <= era.max + 50) score += 10;
+    }
+
+    const age = Date.now() - new Date(row.created_at).getTime();
+    if (age < 30 * 24 * 60 * 60 * 1000) score += 5;
+
+    row.relevance_score = score;
+    try { row.original_data = JSON.parse(row.original_data); } catch(e) { row.original_data = {}; }
+    try { row.corrected_data = JSON.parse(row.corrected_data); } catch(e) { row.corrected_data = {}; }
+    return row;
+  });
+
+  return scored
+    .filter(r => r.relevance_score > 0)
+    .sort((a, b) => b.relevance_score - a.relevance_score)
+    .slice(0, limit);
+}
+
+function getAllFeedbackStats() {
+  const conn = getDb();
+  return {
+    total: conn.prepare('SELECT COUNT(*) as c FROM ai_feedback').get().c,
+    accepts: conn.prepare("SELECT COUNT(*) as c FROM ai_feedback WHERE action_type = 'accept'").get().c,
+    rejects: conn.prepare("SELECT COUNT(*) as c FROM ai_feedback WHERE action_type = 'reject'").get().c,
+    corrections: conn.prepare("SELECT COUNT(*) as c FROM ai_feedback WHERE action_type = 'correct'").get().c,
+    alternatives: conn.prepare("SELECT COUNT(*) as c FROM ai_feedback WHERE action_type = 'select_alternative'").get().c,
+  };
+}
+
 module.exports = {
   initialize,
   getSetting, setSetting,
@@ -418,4 +512,5 @@ module.exports = {
   deleteResearchJob, deleteDescendantAncestors,
   getRejectedFsIds,
   getJobStats,
+  addAIFeedback, getRelevantFeedback, getAllFeedbackStats,
 };
