@@ -2869,6 +2869,12 @@ class ResearchEngine {
                 if (isNonUkPlace(candPlace) && !isUkPlace(candPlace) && candPlace) continue;
                 if (this.rejectedFsIds.has(cand.id)) continue;
 
+                // Validate: gender must match expected
+                const candGender = (cand.gender || '').toLowerCase();
+                if (candGender && gender.toLowerCase() !== candGender) {
+                  continue;
+                }
+
                 const candParts = parseNameParts(cand.name || '');
                 const candYear = normalizeDate(cand.birthDate)?.year;
 
@@ -2948,6 +2954,9 @@ class ResearchEngine {
                   for (const cand of altCandidates) {
                     const candPlace = sanitizePlaceName(cand.birthPlace || '');
                     if (isNonUkPlace(candPlace) && !isUkPlace(candPlace) && candPlace) continue;
+                    // Gender check
+                    const candGender = (cand.gender || '').toLowerCase();
+                    if (candGender && gender.toLowerCase() !== candGender) continue;
                     const candParts = parseNameParts(cand.name || '');
                     const candYear = normalizeDate(cand.birthDate)?.year;
                     if (candYear && childBirthYear) {
