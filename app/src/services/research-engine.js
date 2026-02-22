@@ -116,6 +116,12 @@ const NON_UK_COUNTRIES = new Set([
   'france', 'germany', 'italy', 'spain', 'netherlands', 'belgium',
   'sweden', 'norway', 'denmark', 'switzerland', 'austria',
   'india', 'china', 'japan', 'brazil', 'mexico', 'russia',
+  'finland', 'iceland', 'portugal', 'poland', 'czech', 'hungary', 'romania',
+  'nula-seleän', 'tāmaki-makau-rau',
+  // Indian states (FS uses these without 'India')
+  'uttar pradesh', 'madhya pradesh', 'andhra pradesh', 'tamil nadu', 'karnataka',
+  'maharashtra', 'gujarat', 'rajasthan', 'bihar', 'west bengal', 'punjab',
+  'kerala', 'odisha', 'jharkhand', 'assam', 'himachal pradesh',
 ]);
 
 const UK_INDICATORS = new Set([
@@ -3137,17 +3143,29 @@ class ResearchEngine {
             for (const tryName of surnamesToTry) {
               if (!tryName) continue;
               const estBirthYear = childBirthYear ? childBirthYear - 28 : null;
-              const query = { surname: tryName, count: 8 };
+              const query = { surname: tryName, count: 15 };
               if (estBirthYear) query.birthDate = String(estBirthYear);
-              if (childBirthPlace) query.birthPlace = childBirthPlace;
+              // Use child's birth place, or fallback to 'England' to filter out non-UK results
+              if (childBirthPlace) {
+                query.birthPlace = childBirthPlace;
+              } else {
+                query.birthPlace = 'England';
+              }
 
-              console.log(`[Engine] asc#${fatherAsc}: Direct search for father — ${tryName}, ~b.${estBirthYear || '?'}, ${childBirthPlace || '?'}`);
+              console.log(`[Engine] asc#${fatherAsc}: Direct search for father — ${tryName}, ~b.${estBirthYear || '?'}, ${query.birthPlace}`);
 
               try {
                 const candidates = await this.fsSource.searchPerson(query);
                 for (const cand of candidates) {
+                  // STRICT UK filtering: if candidate has a place, it must be UK-recognizable
                   const candPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
-                  if (candPlace && isNonUkPlace(candPlace) && !isUkPlace(candPlace)) continue;
+                  if (candPlace) {
+                    if (isNonUkPlace(candPlace)) continue;
+                    if (!isUkPlace(candPlace)) {
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — non-UK: ${candPlace}`);
+                      continue;
+                    }
+                  }
                   if (this.rejectedFsIds.has(cand.id)) continue;
 
                   // Gender check
@@ -3171,10 +3189,10 @@ class ResearchEngine {
                   // Must have a birth date for post-1837 people
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
-                  // *** KEY: Only accept if source-verified ***
+                  // *** KEY: Only accept if source-verified (2+ primary sources for Strategy 2) ***
                   const srcVerify = await this.verifyParentSources(cand.id);
-                  if (srcVerify.primaryCount === 0) {
-                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — 0 primary sources, SKIP`);
+                  if (srcVerify.primaryCount < 2) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need 2+)`);
                     continue;
                   }
 
@@ -3263,18 +3281,29 @@ class ResearchEngine {
 
             if (motherSurname) {
               const estBirthYear = childBirthYear ? childBirthYear - 26 : null;
-              const query = { surname: motherSurname, count: 8 };
+              const query = { surname: motherSurname, count: 15 };
               if (motherGiven) query.givenName = motherGiven;
               if (estBirthYear) query.birthDate = String(estBirthYear);
-              if (childBirthPlace) query.birthPlace = childBirthPlace;
+              if (childBirthPlace) {
+                query.birthPlace = childBirthPlace;
+              } else {
+                query.birthPlace = 'England';
+              }
 
-              console.log(`[Engine] asc#${motherAsc}: Direct search for mother — ${motherGiven ? motherGiven + ' ' : ''}${motherSurname}, ~b.${estBirthYear || '?'}, ${childBirthPlace || '?'}`);
+              console.log(`[Engine] asc#${motherAsc}: Direct search for mother — ${motherGiven ? motherGiven + ' ' : ''}${motherSurname}, ~b.${estBirthYear || '?'}, ${query.birthPlace}`);
 
               try {
                 const candidates = await this.fsSource.searchPerson(query);
                 for (const cand of candidates) {
+                  // STRICT UK filtering: if candidate has a place, it must be UK-recognizable
                   const candPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
-                  if (candPlace && isNonUkPlace(candPlace) && !isUkPlace(candPlace)) continue;
+                  if (candPlace) {
+                    if (isNonUkPlace(candPlace)) continue;
+                    if (!isUkPlace(candPlace)) {
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — non-UK: ${candPlace}`);
+                      continue;
+                    }
+                  }
                   if (this.rejectedFsIds.has(cand.id)) continue;
 
                   const candGender = (cand.gender || '').toLowerCase();
@@ -3287,10 +3316,10 @@ class ResearchEngine {
                   }
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
-                  // Source verification required
+                  // Source verification required (2+ primary sources for Strategy 2)
                   const srcVerify = await this.verifyParentSources(cand.id);
-                  if (srcVerify.primaryCount === 0) {
-                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — 0 primary sources, SKIP`);
+                  if (srcVerify.primaryCount < 2) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need 2+)`);
                     continue;
                   }
 
