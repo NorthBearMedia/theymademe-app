@@ -2915,8 +2915,8 @@ class ResearchEngine {
 
         // Sum all points
         const totalPoints = sourceResult.points + factResult.points + familyResult.points + locationResult.points;
-        const confidenceScore = computeFinalScore(totalPoints);
-        const confidenceLevel = this.getConfidenceLevel(confidenceScore);
+        let confidenceScore = computeFinalScore(totalPoints);
+        let confidenceLevel = this.getConfidenceLevel(confidenceScore);
 
         // Build verification notes (period-separated for bullet display in UI)
         const allNotes = [
