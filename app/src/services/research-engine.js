@@ -667,32 +667,35 @@ function parseNotesForAnchors(notes) {
     anchors[3] = { ...parseNameParts(motherMatch[1].trim()), birthDate: motherMatch[2], deathDate: motherMatch[3] && !['present', 'living'].includes(motherMatch[3].toLowerCase()) ? motherMatch[3] : '' };
   }
 
+  // Helper: clean death date — "living"/"present" → empty string
+  const cleanDeathDate = (d) => (d && !['present', 'living'].includes(d.toLowerCase())) ? d : '';
+
   // ─── Paternal Grandparents ─── (asc#4 = grandfather, asc#5 = grandmother)
   // Patterns: "Paternal GP:", "Paternal grandparents:", "grandfather was Name"
-  const pgMatch = notes.match(/(?:paternal\s+(?:gp|grandparents?)\s*[:\-–]\s*)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4})?\)/i)
-    || notes.match(/(?:paternal\s+)?grandfather\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4})?\))?(?:,|\.|born|from|and|$)/i);
+  const pgMatch = notes.match(/(?:paternal\s+(?:gp|grandparents?)\s*[:\-–]\s*)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\)/i)
+    || notes.match(/(?:paternal\s+)?grandfather\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:,|\.|born|from|and|$)/i);
   if (pgMatch) {
-    anchors[4] = { ...parseNameParts(pgMatch[1].trim()), birthDate: pgMatch[2] || '', deathDate: pgMatch[3] || '' };
+    anchors[4] = { ...parseNameParts(pgMatch[1].trim()), birthDate: pgMatch[2] || '', deathDate: cleanDeathDate(pgMatch[3]) };
   }
 
   // Second person after "and" for grandmother (Paternal GP: Name1 (y-y) and Name2 (y-y))
-  const pgmMatch = notes.match(/(?:paternal\s+(?:gp|grandparents?)\s*[:\-–].*?and\s+)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4})?\)/i)
-    || notes.match(/(?:paternal\s+)?grandmother\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4})?\))?(?:,|\.|born|from|$)/i);
+  const pgmMatch = notes.match(/(?:paternal\s+(?:gp|grandparents?)\s*[:\-–].*?and\s+)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\)/i)
+    || notes.match(/(?:paternal\s+)?grandmother\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:,|\.|born|from|$)/i);
   if (pgmMatch) {
-    anchors[5] = { ...parseNameParts(pgmMatch[1].trim()), birthDate: pgmMatch[2] || '', deathDate: pgmMatch[3] || '' };
+    anchors[5] = { ...parseNameParts(pgmMatch[1].trim()), birthDate: pgmMatch[2] || '', deathDate: cleanDeathDate(pgmMatch[3]) };
   }
 
   // ─── Maternal Grandparents ─── (asc#6 = grandfather, asc#7 = grandmother)
-  const mgMatch = notes.match(/(?:maternal\s+(?:gp|grandparents?)\s*[:\-–]\s*)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4})?\)/i)
-    || notes.match(/maternal\s+grandfather\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4})?\))?(?:,|\.|born|from|and|$)/i);
+  const mgMatch = notes.match(/(?:maternal\s+(?:gp|grandparents?)\s*[:\-–]\s*)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\)/i)
+    || notes.match(/maternal\s+grandfather\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:,|\.|born|from|and|$)/i);
   if (mgMatch) {
-    anchors[6] = { ...parseNameParts(mgMatch[1].trim()), birthDate: mgMatch[2] || '', deathDate: mgMatch[3] || '' };
+    anchors[6] = { ...parseNameParts(mgMatch[1].trim()), birthDate: mgMatch[2] || '', deathDate: cleanDeathDate(mgMatch[3]) };
   }
 
-  const mgmMatch = notes.match(/(?:maternal\s+(?:gp|grandparents?)\s*[:\-–].*?and\s+)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4})?\)/i)
-    || notes.match(/maternal\s+grandmother\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4})?\))?(?:,|\.|born|from|$)/i);
+  const mgmMatch = notes.match(/(?:maternal\s+(?:gp|grandparents?)\s*[:\-–].*?and\s+)([A-Z][a-zA-Z\s]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\)/i)
+    || notes.match(/maternal\s+grandmother\s*(?:was|:|-)\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:,|\.|born|from|$)/i);
   if (mgmMatch) {
-    anchors[7] = { ...parseNameParts(mgmMatch[1].trim()), birthDate: mgmMatch[2] || '', deathDate: mgmMatch[3] || '' };
+    anchors[7] = { ...parseNameParts(mgmMatch[1].trim()), birthDate: mgmMatch[2] || '', deathDate: cleanDeathDate(mgmMatch[3]) };
   }
 
   // ─── Fallback: Extract dates near ancestor mentions ───
