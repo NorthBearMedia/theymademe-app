@@ -877,6 +877,9 @@ class ResearchEngine {
     if (discoveryMethod === 'tree_parents_verified') {
       points += 8;
       notes.push(`Discovery: tree_parents_verified (+8)`);
+    } else if (discoveryMethod === 'direct_search_verified') {
+      points += 8;
+      notes.push(`Discovery: direct_search_verified (+8)`);
     } else if (discoveryMethod === 'tree_parents_unverified') {
       points += 3;
       notes.push(`Discovery: tree_parents_unverified (+3)`);
@@ -1134,6 +1137,9 @@ class ResearchEngine {
         // Birth year within ±5
         const candYear = normalizeDate(cand.birthDate)?.year;
         if (birthYear && candYear && Math.abs(birthYear - candYear) > 5) continue;
+
+        // Reject undated candidates for post-1837 people
+        if (birthYear && birthYear >= 1837 && !candYear) continue;
 
         return cand.id;
       }
@@ -2877,6 +2883,20 @@ class ResearchEngine {
             const candYear = normalizeDate(cand.birthDate)?.year;
             if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > 5) continue;
 
+            // If WE know the birth year but the candidate has none, reject for
+            // post-1837 people (civil registration era — records should have dates).
+            // This prevents matching modern people to undated Finnish/Swedish stubs.
+            if (recBirthYear && recBirthYear >= 1837 && !candYear) {
+              console.log(`[Engine]     → rejected: known b.${recBirthYear} but candidate has no birth date`);
+              continue;
+            }
+
+            // If candidate has a birth year in a completely different century, reject
+            if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > 50) {
+              console.log(`[Engine]     → rejected: birth ${candYear} too far from ${recBirthYear}`);
+              continue;
+            }
+
             console.log(`[Engine]   ✓ asc#${asc} matched: ${cand.name} (${cand.id})`);
             this.db.updateAncestorByAscNumber(this.jobId, asc, {
               fs_person_id: cand.id,
@@ -3083,7 +3103,250 @@ class ResearchEngine {
         }
       }
 
-      console.log(`[Engine] Stored ${storedAscNumbers.size} ancestors (including customer data)`);
+      // ── Strategy 2: Direct parent search for unfilled slots ──
+      // When tree traversal failed (child not in tree, or parents not linked),
+      // try searching FS directly for the parent using the child's surname,
+      // estimated birth year, and location. Only accept if source-verified.
+
+      console.log(`\n[Engine] ── Strategy 2: Direct Parent Search (fallback) ──\n`);
+
+      for (let gen = 1; gen <= this.generations; gen++) {
+        const childGenStart = Math.pow(2, gen - 1);
+        const childGenEnd = Math.pow(2, gen) - 1;
+
+        for (let childAsc = childGenStart; childAsc <= childGenEnd; childAsc++) {
+          const fatherAsc = childAsc * 2;
+          const motherAsc = childAsc * 2 + 1;
+          if (fatherAsc > maxAsc) continue;
+
+          const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+          if (!childRec) continue;
+
+          const childNameParts = parseNameParts(childRec.name || '');
+          const childBirthYear = normalizeDate(childRec.birth_date)?.year;
+          const childBirthPlace = childRec.birth_place || '';
+
+          // Try to fill unfilled father slot
+          if (!storedAscNumbers.has(fatherAsc) && this.fsSource) {
+            const fatherSurname = childNameParts.surname || '';
+            // For hyphenated names, try each part
+            const surnamesToTry = fatherSurname.includes('-')
+              ? fatherSurname.split('-').map(s => s.trim()).filter(Boolean)
+              : [fatherSurname];
+
+            for (const tryName of surnamesToTry) {
+              if (!tryName) continue;
+              const estBirthYear = childBirthYear ? childBirthYear - 28 : null;
+              const query = { surname: tryName, count: 8 };
+              if (estBirthYear) query.birthDate = String(estBirthYear);
+              if (childBirthPlace) query.birthPlace = childBirthPlace;
+
+              console.log(`[Engine] asc#${fatherAsc}: Direct search for father — ${tryName}, ~b.${estBirthYear || '?'}, ${childBirthPlace || '?'}`);
+
+              try {
+                const candidates = await this.fsSource.searchPerson(query);
+                for (const cand of candidates) {
+                  const candPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
+                  if (candPlace && isNonUkPlace(candPlace) && !isUkPlace(candPlace)) continue;
+                  if (this.rejectedFsIds.has(cand.id)) continue;
+
+                  // Gender check
+                  const candGender = (cand.gender || '').toLowerCase();
+                  if (candGender && candGender !== 'male') continue;
+
+                  // Surname must match
+                  const candParts = parseNameParts(cand.name || '');
+                  if (candParts.surname) {
+                    const s1 = tryName.toLowerCase();
+                    const s2 = candParts.surname.toLowerCase();
+                    if (s1 !== s2 && !s1.includes(s2) && !s2.includes(s1)) continue;
+                  }
+
+                  // Birth year check
+                  const candYear = normalizeDate(cand.birthDate)?.year;
+                  if (childBirthYear && candYear) {
+                    const gap = childBirthYear - candYear;
+                    if (gap < 12 || gap > 55) continue;
+                  }
+                  // Must have a birth date for post-1837 people
+                  if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
+
+                  // *** KEY: Only accept if source-verified ***
+                  const srcVerify = await this.verifyParentSources(cand.id);
+                  if (srcVerify.primaryCount === 0) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — 0 primary sources, SKIP`);
+                    continue;
+                  }
+
+                  // Validate
+                  const validation = this.validateTreeParent(
+                    { ...cand, birthDate: cand.birthDate, deathDate: cand.deathDate, birthPlace: cand.birthPlace, deathPlace: cand.deathPlace },
+                    childRec, 'Male'
+                  );
+                  if (!validation.valid) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — validation failed: ${validation.reasons.join('; ')}`);
+                    continue;
+                  }
+
+                  const discoveryMethod = 'direct_search_verified';
+                  const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
+                  console.log(`[Engine] asc#${fatherAsc}: FOUND via direct search: ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources`);
+
+                  storedAscNumbers.add(fatherAsc);
+                  this.storeOrUpdateAncestor(fatherAsc, gen, {
+                    fs_person_id: cand.id,
+                    name: cand.name || 'Unknown',
+                    gender: cand.gender || 'Male',
+                    birth_date: cand.birthDate || '',
+                    birth_place: sanitizePlaceName(cand.birthPlace || ''),
+                    death_date: cand.deathDate || '',
+                    death_place: sanitizePlaceName(cand.deathPlace || ''),
+                    confidence: 'pending',
+                    sources: ['FamilySearch'],
+                    raw_data: {
+                      discoveryMethod,
+                      searchedAsParentOf: childRec.name,
+                      sourceCount: srcVerify.sources.length,
+                      primarySourceCount: srcVerify.primaryCount,
+                      sourcePoints: srcVerify.totalPoints,
+                      sourceClassifications: srcVerify.classifications,
+                      validationReasons: validation.reasons,
+                    },
+                    confidence_score: 0,
+                    confidence_level: 'Pending',
+                    evidence_chain: srcVerify.classifications.map(c => ({ type: 'source_record', category: c.category, title: c.title })),
+                    search_log: [{ step: 'direct_search', surname: tryName, estBirthYear, sources: srcVerify.sources.length }],
+                    conflicts: [],
+                    verification_notes: `Direct search for father of ${childRec.name} (${discoveryMethod}). ${srcVerify.primaryCount} primary sources: ${srcSummary || 'none'}`,
+                  });
+                  break; // Found father, stop searching
+                }
+              } catch (err) {
+                console.log(`[Engine] asc#${fatherAsc}: Direct search error: ${err.message}`);
+              }
+              if (storedAscNumbers.has(fatherAsc)) break; // Found with this surname variant
+            }
+          }
+
+          // Try to fill unfilled mother slot
+          // For mothers, we need a maiden name hint. Check if child's FS search gave parent names.
+          if (!storedAscNumbers.has(motherAsc) && motherAsc <= maxAsc && this.fsSource) {
+            let motherSurname = '';
+            let motherGiven = '';
+
+            // Try to get mother name from Phase 1 FS search (fsPerson.motherName in raw_data)
+            const childRawData = childRec.raw_data || {};
+            if (childRawData.fsPerson?.motherName) {
+              const mp = parseNameParts(childRawData.fsPerson.motherName);
+              motherSurname = mp.surname || '';
+              motherGiven = mp.givenName || '';
+            }
+
+            // Also try: if the child was linked to FS, search results may have included parent names
+            if (!motherSurname && childRec.fs_person_id) {
+              try {
+                const searchResults = await this.fsSource.searchPerson({
+                  givenName: childNameParts.givenName,
+                  surname: childNameParts.surname,
+                  birthDate: childRec.birth_date ? String(normalizeDate(childRec.birth_date)?.year || '') : '',
+                  count: 1,
+                });
+                if (searchResults.length > 0 && searchResults[0].id === childRec.fs_person_id) {
+                  if (searchResults[0].motherName) {
+                    const mp = parseNameParts(searchResults[0].motherName);
+                    motherSurname = mp.surname || '';
+                    motherGiven = mp.givenName || '';
+                  }
+                }
+              } catch (e) { /* ignore */ }
+            }
+
+            if (motherSurname) {
+              const estBirthYear = childBirthYear ? childBirthYear - 26 : null;
+              const query = { surname: motherSurname, count: 8 };
+              if (motherGiven) query.givenName = motherGiven;
+              if (estBirthYear) query.birthDate = String(estBirthYear);
+              if (childBirthPlace) query.birthPlace = childBirthPlace;
+
+              console.log(`[Engine] asc#${motherAsc}: Direct search for mother — ${motherGiven ? motherGiven + ' ' : ''}${motherSurname}, ~b.${estBirthYear || '?'}, ${childBirthPlace || '?'}`);
+
+              try {
+                const candidates = await this.fsSource.searchPerson(query);
+                for (const cand of candidates) {
+                  const candPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
+                  if (candPlace && isNonUkPlace(candPlace) && !isUkPlace(candPlace)) continue;
+                  if (this.rejectedFsIds.has(cand.id)) continue;
+
+                  const candGender = (cand.gender || '').toLowerCase();
+                  if (candGender && candGender !== 'female') continue;
+
+                  const candYear = normalizeDate(cand.birthDate)?.year;
+                  if (childBirthYear && candYear) {
+                    const gap = childBirthYear - candYear;
+                    if (gap < 12 || gap > 55) continue;
+                  }
+                  if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
+
+                  // Source verification required
+                  const srcVerify = await this.verifyParentSources(cand.id);
+                  if (srcVerify.primaryCount === 0) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — 0 primary sources, SKIP`);
+                    continue;
+                  }
+
+                  const validation = this.validateTreeParent(
+                    { ...cand, birthDate: cand.birthDate, deathDate: cand.deathDate, birthPlace: cand.birthPlace, deathPlace: cand.deathPlace },
+                    childRec, 'Female'
+                  );
+                  if (!validation.valid) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — validation failed: ${validation.reasons.join('; ')}`);
+                    continue;
+                  }
+
+                  const discoveryMethod = 'direct_search_verified';
+                  const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
+                  console.log(`[Engine] asc#${motherAsc}: FOUND via direct search: ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources`);
+
+                  storedAscNumbers.add(motherAsc);
+                  this.storeOrUpdateAncestor(motherAsc, gen, {
+                    fs_person_id: cand.id,
+                    name: cand.name || 'Unknown',
+                    gender: cand.gender || 'Female',
+                    birth_date: cand.birthDate || '',
+                    birth_place: sanitizePlaceName(cand.birthPlace || ''),
+                    death_date: cand.deathDate || '',
+                    death_place: sanitizePlaceName(cand.deathPlace || ''),
+                    confidence: 'pending',
+                    sources: ['FamilySearch'],
+                    raw_data: {
+                      discoveryMethod,
+                      searchedAsParentOf: childRec.name,
+                      sourceCount: srcVerify.sources.length,
+                      primarySourceCount: srcVerify.primaryCount,
+                      sourcePoints: srcVerify.totalPoints,
+                      sourceClassifications: srcVerify.classifications,
+                      validationReasons: validation.reasons,
+                    },
+                    confidence_score: 0,
+                    confidence_level: 'Pending',
+                    evidence_chain: srcVerify.classifications.map(c => ({ type: 'source_record', category: c.category, title: c.title })),
+                    search_log: [{ step: 'direct_search', surname: motherSurname, estBirthYear, sources: srcVerify.sources.length }],
+                    conflicts: [],
+                    verification_notes: `Direct search for mother of ${childRec.name} (${discoveryMethod}). ${srcVerify.primaryCount} primary sources: ${srcSummary || 'none'}`,
+                  });
+                  break;
+                }
+              } catch (err) {
+                console.log(`[Engine] asc#${motherAsc}: Direct search error: ${err.message}`);
+              }
+            } else {
+              console.log(`[Engine] asc#${motherAsc}: No mother surname hint available — slot left empty`);
+            }
+          }
+        }
+      }
+
+      console.log(`[Engine] Stored ${storedAscNumbers.size} ancestors after both strategies`);
 
       // ── Phase 3b: Score ancestors bottom-up using record-based points ──
       // Score generation by generation (children first, then parents) so family
