@@ -220,64 +220,6 @@ async function getParents(personId) {
   }
 }
 
-// Get ancestry (pedigree) for a person — DEPRECATED, kept for backward compatibility
-async function getAncestry(personId, generations = 4) {
-  const data = await rateLimitedApiRequest(`/platform/tree/ancestry?person=${personId}&generations=${generations}`);
-
-  if (!data.persons) return [];
-
-  return data.persons.map(person => {
-    const display = person.display || {};
-    const ascNum = person.display?.ascendancyNumber;
-
-    // Extract dates/places — try display fields first, then facts, then lifespan
-    let birthDate = display.birthDate || '';
-    let birthPlace = display.birthPlace || '';
-    let deathDate = display.deathDate || '';
-    let deathPlace = display.deathPlace || '';
-
-    // Extract from facts if available
-    if (person.facts) {
-      for (const fact of person.facts) {
-        const type = (fact.type || '').toLowerCase();
-        const dateStr = fact.date?.original || '';
-        const placeStr = fact.place?.original || '';
-
-        if (type.includes('birth') || type.includes('christening')) {
-          if (!birthDate && dateStr) birthDate = dateStr;
-          if (!birthPlace && placeStr) birthPlace = placeStr;
-        }
-        if (type.includes('death') || type.includes('burial')) {
-          if (!deathDate && dateStr) deathDate = dateStr;
-          if (!deathPlace && placeStr) deathPlace = placeStr;
-        }
-      }
-    }
-
-    // Parse lifespan (e.g. "1875-1958", "1875-", "-1958") for missing dates
-    if (display.lifespan && (!birthDate || !deathDate)) {
-      const lifespanMatch = display.lifespan.match(/^(\d{4})?\s*[-–]\s*(\d{4})?$/);
-      if (lifespanMatch) {
-        if (!birthDate && lifespanMatch[1]) birthDate = lifespanMatch[1];
-        if (!deathDate && lifespanMatch[2]) deathDate = lifespanMatch[2];
-      }
-    }
-
-    return {
-      fs_person_id: person.id,
-      name: display.name || 'Unknown',
-      gender: display.gender || 'Unknown',
-      birthDate,
-      birthPlace,
-      deathDate,
-      deathPlace,
-      ascendancy_number: ascNum ? parseInt(ascNum, 10) : null,
-      generation: ascNum ? Math.floor(Math.log2(parseInt(ascNum, 10))) : 0,
-      raw_data: person,
-    };
-  });
-}
-
 // Get detailed person information
 async function getPersonDetails(personId) {
   const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}`);
@@ -377,7 +319,6 @@ async function extractFactsByType(personId) {
 module.exports = {
   searchPerson,
   getParents,
-  getAncestry,
   getPersonDetails,
   getPersonSources,
   extractFactsByType,

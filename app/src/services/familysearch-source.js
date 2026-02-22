@@ -13,7 +13,7 @@ class FamilySearchSource extends ResearchSource {
   get sourceName() { return 'FamilySearch'; }
 
   get capabilities() {
-    return [SOURCE_CAPABILITIES.SEARCH, SOURCE_CAPABILITIES.TREE_TRAVERSAL, SOURCE_CAPABILITIES.SOURCES];
+    return [SOURCE_CAPABILITIES.SEARCH, SOURCE_CAPABILITIES.SOURCES];
   }
 
   isAvailable() {
@@ -26,10 +26,6 @@ class FamilySearchSource extends ResearchSource {
 
   async getParents(personId) {
     return fsApi.getParents(personId);
-  }
-
-  async getAncestry(personId, generations) {
-    return fsApi.getAncestry(personId, generations);
   }
 
   async getPersonDetails(personId) {
