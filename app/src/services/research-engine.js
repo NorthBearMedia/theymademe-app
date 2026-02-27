@@ -1357,8 +1357,21 @@ class ResearchEngine {
         try {
           const np = parseNameParts(childRec.name || '');
           if (np.givenName && np.surname) {
-            const birthYear = normalizeDate(childRec.birth_date)?.year;
-            const query = { givenName: np.givenName, surname: np.surname, count: 3 };
+            let birthYear = normalizeDate(childRec.birth_date)?.year;
+            // If no birth year, estimate from the child's own child (grandchild)
+            // e.g. Frederick Hunt (#8) has no birth date, but his child Norman (#4) was born 1931
+            if (!birthYear && childRec.ascendancy_number >= 2) {
+              const grandchildAsc = Math.floor(childRec.ascendancy_number / 2);
+              const grandchildRec = this.db.getAncestorByAscNumber(this.jobId, grandchildAsc);
+              if (grandchildRec) {
+                const gcYear = normalizeDate(grandchildRec.birth_date)?.year;
+                if (gcYear) {
+                  birthYear = gcYear - 28;
+                  console.log(`[Engine] findChildInTree: estimated birth ~${birthYear} for ${childRec.name} from grandchild asc#${grandchildAsc} (b.${gcYear})`);
+                }
+              }
+            }
+            const query = { givenName: np.givenName, surname: np.surname, count: 5 };
             if (birthYear) query.birthDate = String(birthYear);
             if (childRec.birth_place) query.birthPlace = childRec.birth_place;
             const results = await this.fsSource.searchPerson(query);
@@ -1383,7 +1396,16 @@ class ResearchEngine {
     const np = parseNameParts(childRec.name || '');
     if (!np.givenName || !np.surname) return { fsId: null, parentData: null };
 
-    const birthYear = normalizeDate(childRec.birth_date)?.year;
+    let birthYear = normalizeDate(childRec.birth_date)?.year;
+    // Estimate birth year from grandchild if missing
+    if (!birthYear && childRec.ascendancy_number >= 2) {
+      const grandchildAsc = Math.floor(childRec.ascendancy_number / 2);
+      const grandchildRec = this.db.getAncestorByAscNumber(this.jobId, grandchildAsc);
+      if (grandchildRec) {
+        const gcYear = normalizeDate(grandchildRec.birth_date)?.year;
+        if (gcYear) birthYear = gcYear - 28;
+      }
+    }
     const birthPlace = childRec.birth_place || '';
 
     const query = {
