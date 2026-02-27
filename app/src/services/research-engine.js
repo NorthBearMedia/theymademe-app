@@ -2852,8 +2852,8 @@ class ResearchEngine {
 
     // Backfill knownAnchors from existing DB records (for re-runs or pre-populated data)
     // This ensures that Customer Data records for asc#4-15+ are available as search anchors
-    const maxAsc = Math.pow(2, this.generations) - 1;
-    for (let asc = 4; asc <= Math.min(maxAsc, 63); asc++) {
+    const maxAsc = Math.pow(2, this.generations + 1) - 1;
+    for (let asc = 4; asc <= maxAsc; asc++) {
       if (this.knownAnchors[asc]) continue; // already have it from notes/input
       const rec = this.db.getAncestorByAscNumber(this.jobId, asc);
       if (rec && rec.name && rec.confidence_level === 'Customer Data') {
@@ -3345,7 +3345,7 @@ class ResearchEngine {
       // (normally created by the route handler, but may be missing if job was created directly)
       this.ensureCustomerDataStored();
 
-      const totalPossible = Math.pow(2, this.generations) - 1;
+      const totalPossible = Math.pow(2, this.generations + 1) - 1;
       this.db.updateJobProgress(this.jobId, 'Starting research...', 0, totalPossible);
 
       console.log(`\n[Engine] ════════════════════════════════════════════════`);
@@ -3358,7 +3358,7 @@ class ResearchEngine {
       // Search FS for each customer ancestor (asc#1-7), starting with grandparents.
       // Grandparents (asc#4-7) are usually dead with full dates, so they're the best entry points.
 
-      const maxAsc = Math.pow(2, this.generations) - 1;
+      const maxAsc = Math.pow(2, this.generations + 1) - 1;
 
       this.db.updateJobProgress(this.jobId, 'Linking ancestors to FamilySearch...', 0, totalPossible);
 
