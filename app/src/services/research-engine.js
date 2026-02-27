@@ -3403,8 +3403,16 @@ class ResearchEngine {
         }
 
         try {
-          const results = await this.fsSource.searchPerson(query);
+          let results = await this.fsSource.searchPerson(query);
           console.log(`[Engine] FS search for asc#${asc} (${rec.name}): ${results.length} candidates`);
+
+          // ── RETRY WITHOUT LOCATION if 0 results (location may be too specific) ──
+          if (results.length === 0 && query.birthPlace) {
+            const retryQuery = { ...query };
+            delete retryQuery.birthPlace;
+            results = await this.fsSource.searchPerson(retryQuery);
+            console.log(`[Engine] asc#${asc}: Retry without birthPlace → ${results.length} candidates`);
+          }
 
           // ── SCORE ALL CANDIDATES instead of accepting first match ──
           const passingCandidates = [];
@@ -3430,13 +3438,24 @@ class ResearchEngine {
             }
 
             const candYear = normalizeDate(cand.birthDate)?.year;
-            if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > 5) continue;
+            // Wider tolerance for gen 3+ (great-grandparents and beyond): ±8 years
+            const yearTolerance = rec.generation >= 3 ? 8 : 5;
+            if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > yearTolerance) continue;
 
             // If WE know the birth year but the candidate has none, reject for
-            // post-1837 people (civil registration era — records should have dates).
+            // post-1837 people with COMMON surnames. Uncommon surnames are safe with location match.
             if (recBirthYear && recBirthYear >= 1837 && !candYear) {
-              console.log(`[Engine]     → rejected: known b.${recBirthYear} but candidate has no birth date`);
-              continue;
+              if (isCommonSurname(np.surname)) {
+                console.log(`[Engine]     → rejected: known b.${recBirthYear} but candidate has no birth date (common surname)`);
+                continue;
+              }
+              // For uncommon surnames, allow if candidate has a matching place
+              const candPlaceCheck = sanitizePlaceName(cand.birthPlace || '');
+              if (!candPlaceCheck || !refPlace) {
+                console.log(`[Engine]     → rejected: known b.${recBirthYear} but candidate has no birth date or place`);
+                continue;
+              }
+              console.log(`[Engine]     → allowing dateless candidate for uncommon surname '${np.surname}' with place match`);
             }
 
             // If candidate has a birth year in a completely different century, reject
@@ -3891,7 +3910,20 @@ class ResearchEngine {
                   // *** KEY: Only accept if source-verified (or auth-unavailable with strong match) ***
                   // Common surnames need MORE evidence (3+ sources) to avoid false matches
                   // Distant candidates need MUCH more evidence (4+ sources) — people rarely moved far
-                  let minSources = isCommonSurname(tryName) && !knownGivenName ? 3 : 2;
+                  // Gen 4+ ancestors: relax to 1 source (deeper records are sparser)
+                  // Gen 5+: accept with FreeBMD confirmation alone
+                  // Pre-1837: accept FS tree leads without source verification (civil records don't exist)
+                  const parentGen = Math.floor(Math.log2(fatherAsc));
+                  let minSources;
+                  if (candYear && candYear < 1837) {
+                    minSources = 0; // Pre-civil registration: FS tree data is all we have
+                  } else if (parentGen >= 5) {
+                    minSources = 1; // Gen 5+ (3x great-grandparents): 1 source is enough
+                  } else if (parentGen >= 4) {
+                    minSources = isCommonSurname(tryName) && !knownGivenName ? 2 : 1;
+                  } else {
+                    minSources = isCommonSurname(tryName) && !knownGivenName ? 3 : 2;
+                  }
                   const candPlaceFull = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
                   const candProximity = childBirthPlace ? placeProximity(candPlaceFull, childBirthPlace) : { proximity: null };
                   if (candProximity.proximity === 'distant') {
@@ -3900,36 +3932,59 @@ class ResearchEngine {
                   }
                   const srcVerify = await this.verifyParentSources(cand.id);
                   if (srcVerify.authFailed) {
-                    // Can't verify sources due to auth — be VERY strict:
-                    // REQUIRE known given name AND verify it matches the candidate
-                    if (!knownGivenName) {
-                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known given name, SKIP (too risky without verification)`);
-                      continue;
-                    }
-                    // Verify the candidate's given name actually matches the known name
-                    const candParts2 = parseNameParts(cand.name || '');
-                    if (!this.namesSimilar(candParts2.givenName, knownGivenName)) {
-                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candParts2.givenName}' doesn't match known '${knownGivenName}', SKIP`);
-                      continue;
-                    }
-                    // Reject distant candidates when we can't verify
-                    if (candProximity.proximity === 'distant') {
-                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
-                      continue;
-                    }
-                    // Try FreeBMD cross-verification as secondary check
+                    // Can't verify sources due to auth — use secondary evidence instead
                     const candBirthYear = normalizeDate(cand.birthDate)?.year;
-                    if (candBirthYear && candBirthYear >= 1837 && candBirthYear <= 1983) {
-                      const freebmdCheck = await this.confirmWithFreeBMD(
-                        cand.name, candBirthYear, cand.birthPlace || childBirthPlace, null, fatherAsc
-                      );
-                      if (freebmdCheck.bonusScore > 0) {
-                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
-                      } else {
-                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, FreeBMD didn't confirm, accepting with caution (known name match)`);
+
+                    if (knownGivenName) {
+                      // We have a known given name — verify it matches
+                      const candParts2 = parseNameParts(cand.name || '');
+                      if (!this.namesSimilar(candParts2.givenName, knownGivenName)) {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candParts2.givenName}' doesn't match known '${knownGivenName}', SKIP`);
+                        continue;
                       }
+                      if (candProximity.proximity === 'distant') {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
+                        continue;
+                      }
+                      // Try FreeBMD cross-verification as secondary check
+                      if (candBirthYear && candBirthYear >= 1837 && candBirthYear <= 1983) {
+                        const freebmdCheck = await this.confirmWithFreeBMD(
+                          cand.name, candBirthYear, cand.birthPlace || childBirthPlace, null, fatherAsc
+                        );
+                        if (freebmdCheck.bonusScore > 0) {
+                          console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
+                        }
+                      }
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${knownGivenName}' matches`);
+                    } else {
+                      // No known given name — try secondary evidence (FreeBMD, location, surname rarity)
+                      if (candProximity.proximity === 'distant') {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known name, distant location, SKIP`);
+                        continue;
+                      }
+                      // For common surnames without known name: still too risky unless FreeBMD confirms
+                      let freebmdConfirmed = false;
+                      if (candBirthYear && candBirthYear >= 1837 && candBirthYear <= 1983) {
+                        try {
+                          const freebmdCheck = await this.confirmWithFreeBMD(
+                            cand.name, candBirthYear, cand.birthPlace || childBirthPlace, null, fatherAsc
+                          );
+                          freebmdConfirmed = freebmdCheck.bonusScore > 0;
+                        } catch (e) { /* ignore FreeBMD errors */ }
+                      }
+                      const parentGen = Math.floor(Math.log2(fatherAsc));
+                      if (isCommonSurname(tryName) && !freebmdConfirmed) {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, common surname, no known name, no FreeBMD confirm, SKIP`);
+                        continue;
+                      }
+                      if (!freebmdConfirmed && parentGen < 4) {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known name, gen ${parentGen} needs verification, SKIP`);
+                        continue;
+                      }
+                      // Accept: uncommon surname OR FreeBMD-confirmed OR deep generation
+                      const reason = freebmdConfirmed ? 'FreeBMD confirmed' : `uncommon surname at gen ${parentGen}`;
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting without known name: ${reason}`);
                     }
-                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${knownGivenName}' matches`);
                   } else if (srcVerify.primaryCount < minSources) {
                     console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need ${minSources}+)`);
                     continue;
@@ -4067,43 +4122,78 @@ class ResearchEngine {
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
                   // Source verification required — common surnames need more evidence
-                  // Distant candidates need MUCH more evidence (4+ sources)
-                  let motherMinSources = isCommonSurname(motherSurname) && !motherGiven ? 3 : 2;
+                  // Gen 4+: relax; Gen 5+: 1 source; Pre-1837: FS tree only
+                  const motherGenNum = Math.floor(Math.log2(motherAsc));
+                  let motherMinSources;
+                  if (candYear && candYear < 1837) {
+                    motherMinSources = 0;
+                  } else if (motherGenNum >= 5) {
+                    motherMinSources = 1;
+                  } else if (motherGenNum >= 4) {
+                    motherMinSources = isCommonSurname(motherSurname) && !motherGiven ? 2 : 1;
+                  } else {
+                    motherMinSources = isCommonSurname(motherSurname) && !motherGiven ? 3 : 2;
+                  }
                   const motherCandPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
                   const motherCandProx = childBirthPlace ? placeProximity(motherCandPlace, childBirthPlace) : { proximity: null };
                   if (motherCandProx.proximity === 'distant') {
-                    motherMinSources = Math.max(motherMinSources, 4);
+                    motherMinSources = Math.max(motherMinSources, motherGenNum >= 4 ? 2 : 4);
                     console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — DISTANT (${motherCandProx.county1} vs ${motherCandProx.county2}), need ${motherMinSources}+ sources`);
                   }
                   const srcVerify = await this.verifyParentSources(cand.id);
                   if (srcVerify.authFailed) {
-                    // Can't verify sources due to auth — be VERY strict:
-                    // REQUIRE known given name AND verify it matches the candidate
-                    if (!motherGiven) {
-                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known given name, SKIP (too risky without verification)`);
-                      continue;
-                    }
-                    // Verify the candidate's given name actually matches
-                    const candMotherParts = parseNameParts(cand.name || '');
-                    if (!this.namesSimilar(candMotherParts.givenName, motherGiven)) {
-                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candMotherParts.givenName}' doesn't match known '${motherGiven}', SKIP`);
-                      continue;
-                    }
-                    if (motherCandProx.proximity === 'distant') {
-                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
-                      continue;
-                    }
-                    // Try FreeBMD cross-verification
+                    // Can't verify sources due to auth — use secondary evidence instead
                     const candMotherBirthYear = normalizeDate(cand.birthDate)?.year;
-                    if (candMotherBirthYear && candMotherBirthYear >= 1837 && candMotherBirthYear <= 1983) {
-                      const freebmdCheck = await this.confirmWithFreeBMD(
-                        cand.name, candMotherBirthYear, cand.birthPlace || childBirthPlace, null, motherAsc
-                      );
-                      if (freebmdCheck.bonusScore > 0) {
-                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
+
+                    if (motherGiven) {
+                      // We have a known given name — verify it matches
+                      const candMotherParts = parseNameParts(cand.name || '');
+                      if (!this.namesSimilar(candMotherParts.givenName, motherGiven)) {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candMotherParts.givenName}' doesn't match known '${motherGiven}', SKIP`);
+                        continue;
                       }
+                      if (motherCandProx.proximity === 'distant') {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
+                        continue;
+                      }
+                      // Try FreeBMD cross-verification
+                      if (candMotherBirthYear && candMotherBirthYear >= 1837 && candMotherBirthYear <= 1983) {
+                        try {
+                          const freebmdCheck = await this.confirmWithFreeBMD(
+                            cand.name, candMotherBirthYear, cand.birthPlace || childBirthPlace, null, motherAsc
+                          );
+                          if (freebmdCheck.bonusScore > 0) {
+                            console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
+                          }
+                        } catch (e) { /* ignore FreeBMD errors */ }
+                      }
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${motherGiven}' matches`);
+                    } else {
+                      // No known given name — try secondary evidence
+                      if (motherCandProx.proximity === 'distant') {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known name, distant location, SKIP`);
+                        continue;
+                      }
+                      let freebmdConfirmed = false;
+                      if (candMotherBirthYear && candMotherBirthYear >= 1837 && candMotherBirthYear <= 1983) {
+                        try {
+                          const freebmdCheck = await this.confirmWithFreeBMD(
+                            cand.name, candMotherBirthYear, cand.birthPlace || childBirthPlace, null, motherAsc
+                          );
+                          freebmdConfirmed = freebmdCheck.bonusScore > 0;
+                        } catch (e) { /* ignore FreeBMD errors */ }
+                      }
+                      if (isCommonSurname(motherSurname) && !freebmdConfirmed) {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, common surname, no known name, no FreeBMD confirm, SKIP`);
+                        continue;
+                      }
+                      if (!freebmdConfirmed && motherGenNum < 4) {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known name, gen ${motherGenNum} needs verification, SKIP`);
+                        continue;
+                      }
+                      const reason = freebmdConfirmed ? 'FreeBMD confirmed' : `uncommon surname at gen ${motherGenNum}`;
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting without known name: ${reason}`);
                     }
-                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${motherGiven}' matches`);
                   } else if (srcVerify.primaryCount < motherMinSources) {
                     console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need ${motherMinSources}+)`);
                     continue;
@@ -4242,10 +4332,14 @@ class ResearchEngine {
                   }
 
                   // Source verification — distant spouses need 4+ primary sources
-                  let spouseMinSources = 2;
+                  // Gen 4+: relax to 1 source; Gen 5+: accept with FreeBMD alone
+                  const motherGen = Math.floor(Math.log2(motherAsc));
+                  const spouseBirthYr = normalizeDate(spouse.birthDate)?.year;
+                  let spouseMinSources = motherGen >= 5 ? 1 : (motherGen >= 4 ? 1 : 2);
+                  if (spouseBirthYr && spouseBirthYr < 1837) spouseMinSources = 0;
                   const spouseProx = childBirthPlace ? placeProximity(spousePlace, childBirthPlace) : { proximity: null };
                   if (spouseProx.proximity === 'distant') {
-                    spouseMinSources = 4;
+                    spouseMinSources = Math.max(spouseMinSources, motherGen >= 4 ? 2 : 4);
                     console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — DISTANT (${spouseProx.county1} vs ${spouseProx.county2}), need 4+ sources`);
                   }
                   const srcVerify = await this.verifyParentSources(spouse.id);
@@ -4330,7 +4424,576 @@ class ResearchEngine {
         }
       }
 
-      console.log(`[Engine] Stored ${storedAscNumbers.size} ancestors after both strategies`);
+      console.log(`[Engine] Stored ${storedAscNumbers.size} ancestors after Strategies 1-2`);
+
+      // ── Strategy 3: FreeBMD Civil Records Discovery ──
+      // When tree traversal (Strategy 1) and direct FS search (Strategy 2) both fail,
+      // use FreeBMD birth records (post-1911) to discover mother's maiden surname,
+      // and marriage records to discover both parents' full names.
+      // Then re-search FS with the newly discovered names.
+
+      if (this.freebmdSource) {
+        console.log(`\n[Engine] ── Strategy 3: FreeBMD Civil Records Discovery ──\n`);
+
+        const strategy3Discoveries = []; // { asc, name, surname, isMother, maidenSurname, discoveryMethod, evidence }
+
+        for (let gen = 1; gen <= this.generations; gen++) {
+          const childGenStart = Math.pow(2, gen - 1);
+          const childGenEnd = Math.pow(2, gen) - 1;
+
+          for (let childAsc = childGenStart; childAsc <= childGenEnd; childAsc++) {
+            const fatherAsc = childAsc * 2;
+            const motherAsc = childAsc * 2 + 1;
+            if (fatherAsc > maxAsc) continue;
+
+            const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+            if (!childRec) continue;
+
+            const hasFather = storedAscNumbers.has(fatherAsc);
+            const hasMother = storedAscNumbers.has(motherAsc);
+            if (hasFather && hasMother) continue; // both already found
+
+            const childNameParts = parseNameParts(childRec.name || '');
+            const childBirthYear = normalizeDate(childRec.birth_date)?.year;
+            const childBirthPlace = childRec.birth_place || '';
+
+            // ── 3A: FreeBMD Birth Record → Mother's Maiden Surname ──
+            // Post-1911 GRO index includes mother's maiden surname in the birth entry.
+            let discoveredMaidenSurname = null;
+
+            if (!hasMother && childBirthYear && childBirthYear >= 1911 && childBirthYear <= 1983) {
+              try {
+                const birthResults = await this.freebmdSource.searchBirths(
+                  childNameParts.surname || '', childNameParts.givenName || '',
+                  childBirthYear - 1, childBirthYear + 1,
+                  this.extractDistrict(childBirthPlace) || ''
+                );
+
+                // Find best match for this child
+                for (const entry of birthResults) {
+                  if (!entry.spouseSurname) continue;
+                  const sMatch = entry.surname?.toLowerCase() === childNameParts.surname?.toLowerCase();
+                  const fMatch = entry.forenames && childNameParts.givenName &&
+                    (entry.forenames.toLowerCase().startsWith(childNameParts.givenName.toLowerCase()) ||
+                     this.namesSimilar(entry.forenames.split(' ')[0], childNameParts.givenName));
+                  const yMatch = entry.year && Math.abs(entry.year - childBirthYear) <= 2;
+
+                  if (sMatch && fMatch && yMatch) {
+                    discoveredMaidenSurname = entry.spouseSurname;
+                    console.log(`[Strategy3] asc#${childAsc} (${childRec.name}): FreeBMD birth found → mother's maiden surname = ${discoveredMaidenSurname}`);
+                    break;
+                  }
+                }
+              } catch (err) {
+                console.log(`[Strategy3] asc#${childAsc}: FreeBMD birth search error: ${err.message}`);
+              }
+            }
+
+            // ── 3B: FreeBMD Marriage Record → Both Parents' Names ──
+            // Search for the parents' marriage to discover father's first name and mother's maiden name.
+            const fatherSurname = childNameParts.surname || '';
+            const motherMaiden = discoveredMaidenSurname || '';
+
+            // Also check if we know the other parent's maiden name from customer data or previous discovery
+            let knownMotherMaiden = motherMaiden;
+            if (!knownMotherMaiden && hasMother) {
+              const motherRec = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+              if (motherRec) {
+                const mp = parseNameParts(motherRec.name || '');
+                knownMotherMaiden = mp.surname || '';
+              }
+            }
+            if (!knownMotherMaiden) {
+              const anchor = this.knownAnchors[motherAsc];
+              if (anchor?.surname) knownMotherMaiden = anchor.surname;
+            }
+
+            // Estimate parents' marriage year: ~2 years before child's birth
+            const estMarriageYear = childBirthYear ? childBirthYear - 2 : null;
+
+            if ((!hasFather || !hasMother) && fatherSurname && estMarriageYear) {
+              try {
+                // Search marriages for the father's surname around the estimated marriage year
+                const marriageResults = await this.freebmdSource.searchMarriages(
+                  fatherSurname, '', // no given name — we may not know it
+                  Math.max(estMarriageYear - 5, 1837), estMarriageYear + 3,
+                  this.extractDistrict(childBirthPlace) || ''
+                );
+
+                // Common female first names — for gender filtering marriage entries
+                const femaleNames = new Set(['mary','jane','elizabeth','sarah','ann','alice','emily','emma','charlotte','margaret',
+                  'dorothy','florence','ethel','edith','ellen','harriet','isabella','catherine','agnes','annie','beatrice',
+                  'caroline','clara','eliza','esther','fanny','frances','gertrude','hannah','helen','ida','jessie','josephine',
+                  'kate','laura','lilian','lillian','louisa','lucy','mabel','maria','martha','matilda','maud','maude','may',
+                  'millie','minnie','nellie','olive','phyllis','rachel','rosa','rose','ruth','sophia','susan','violet','winifred',
+                  'alma','bertha','betty','brenda','celia','daisy','daphne','deborah','diana','doris','dulcie','edna','eileen',
+                  'elsie','enid','evelyn','gladys','grace','gwendoline','hilda','irene','iris','ivy','joan','joyce','kathleen',
+                  'lena','lily','lois','lydia','maisie','marjorie','muriel','nora','norah','pamela','patricia','peggy','ruby',
+                  'sheila','stella','sylvia','vera','vivian','wendy','priscilla','constance','janet','jean','hester','gladys']);
+
+                for (const entry of marriageResults) {
+                  if (!entry.forenames || !entry.spouseSurname) continue;
+                  if (entry.surname?.toLowerCase() !== fatherSurname.toLowerCase()) continue;
+
+                  // Gender filter: skip entries where the forenames look female
+                  // (these are brides born with fatherSurname who married OUT, not grooms)
+                  const firstName = (entry.forenames || '').split(' ')[0].toLowerCase();
+                  if (femaleNames.has(firstName)) {
+                    console.log(`[Strategy3] asc#${childAsc}: Skipping female marriage entry: ${entry.forenames} ${entry.surname} × ${entry.spouseSurname} (${firstName} is female)`);
+                    continue;
+                  }
+
+                  // If we know mother's maiden name, filter by it
+                  if (knownMotherMaiden && entry.spouseSurname.toLowerCase() !== knownMotherMaiden.toLowerCase()) continue;
+
+                  // If we DON'T know maiden name but discovered it from birth record, filter by that
+                  if (discoveredMaidenSurname && entry.spouseSurname.toLowerCase() !== discoveredMaidenSurname.toLowerCase()) continue;
+
+                  const groomFullName = `${entry.forenames} ${entry.surname}`.trim();
+                  console.log(`[Strategy3] asc#${childAsc}: FreeBMD marriage → father = ${groomFullName}, mother maiden = ${entry.spouseSurname}, ${entry.year} ${entry.district}`);
+
+                  // ── DISCOVER FATHER from marriage record ──
+                  if (!hasFather && !storedAscNumbers.has(fatherAsc)) {
+                    const fatherGeneration = gen;
+                    const fatherBirthEst = (entry.year || estMarriageYear) - 25;
+
+                    // Try to find this person in FS
+                    let fatherFsId = null;
+                    try {
+                      const fsResults = await this.fsSource.searchPerson({
+                        givenName: entry.forenames.split(' ')[0] || '',
+                        surname: entry.surname || '',
+                        birthDate: String(fatherBirthEst),
+                        birthPlace: childBirthPlace || 'England',
+                        count: 5,
+                      });
+
+                      for (const cand of fsResults) {
+                        if (this.rejectedFsIds.has(cand.id)) continue;
+                        if (usedFsPersonIds.has(cand.id)) continue;
+                        const candFirst = (cand.name || '').split(' ')[0];
+                        if (!this.namesSimilar(candFirst, entry.forenames.split(' ')[0])) continue;
+                        const candParts = parseNameParts(cand.name || '');
+                        if (candParts.surname?.toLowerCase() !== fatherSurname.toLowerCase()) continue;
+                        fatherFsId = cand.id;
+                        console.log(`[Strategy3] asc#${fatherAsc}: FS match for father → ${cand.name} (${cand.id})`);
+                        break;
+                      }
+                    } catch (err) {
+                      console.log(`[Strategy3] asc#${fatherAsc}: FS search error: ${err.message}`);
+                    }
+
+                    // Store the discovered father
+                    const evidence = [{
+                      record_type: 'marriage',
+                      source: 'FreeBMD',
+                      is_independent: true,
+                      details: `Marriage: ${entry.forenames} ${entry.surname} × ${entry.spouseSurname}, ${entry.year} ${entry.district}`,
+                      year: entry.year,
+                      quarter: entry.quarter,
+                      district: entry.district,
+                      volume: entry.volume,
+                      page: entry.page,
+                      supports: ['identity', 'couple'],
+                      weight: 25,
+                    }];
+
+                    this.storeOrUpdateAncestor(fatherAsc, fatherGeneration, {
+                      name: groomFullName,
+                      gender: 'Male',
+                      birth_date: String(fatherBirthEst),
+                      birth_place: childBirthPlace || '',
+                      death_date: '',
+                      death_place: '',
+                      fs_person_id: fatherFsId || '',
+                      confidence: 'suggested',
+                      sources: ['FreeBMD'],
+                      raw_data: { discoveryMethod: 'freebmd_marriage_discovery', marriageYear: entry.year, marriageDistrict: entry.district },
+                      confidence_score: 0,
+                      confidence_level: 'Suggested',
+                      evidence_chain: evidence,
+                      search_log: [{ step: 'freebmd_marriage_discovery', marriage: `${groomFullName} × ${entry.spouseSurname}`, year: entry.year }],
+                      verification_notes: `FreeBMD marriage discovery: ${groomFullName} married ${entry.spouseSurname} in ${entry.year}`,
+                      discovery_method: 'freebmd_marriage_discovery',
+                    });
+
+                    storedAscNumbers.add(fatherAsc);
+                    if (fatherFsId) usedFsPersonIds.add(fatherFsId);
+                    console.log(`[Strategy3] ✓ Stored father asc#${fatherAsc}: ${groomFullName}`);
+                  }
+
+                  // ── DISCOVER MOTHER maiden name for future FS search ──
+                  if (!hasMother && !storedAscNumbers.has(motherAsc) && entry.spouseSurname) {
+                    if (!discoveredMaidenSurname) discoveredMaidenSurname = entry.spouseSurname;
+                  }
+
+                  break; // Use first matching marriage
+                }
+              } catch (err) {
+                console.log(`[Strategy3] asc#${childAsc}: FreeBMD marriage search error: ${err.message}`);
+              }
+            }
+
+            // ── 3C: FS Search with discovered maiden surname for mother ──
+            if (!hasMother && !storedAscNumbers.has(motherAsc) && discoveredMaidenSurname && this.fsSource) {
+              const motherBirthEst = childBirthYear ? childBirthYear - 26 : null;
+
+              try {
+                const fsResults = await this.fsSource.searchPerson({
+                  surname: discoveredMaidenSurname,
+                  birthDate: motherBirthEst ? String(motherBirthEst) : '',
+                  birthPlace: childBirthPlace || 'England',
+                  count: 10,
+                });
+
+                for (const cand of fsResults) {
+                  if (this.rejectedFsIds.has(cand.id)) continue;
+                  if (usedFsPersonIds.has(cand.id)) continue;
+                  const candPlace = sanitizePlaceName(cand.birthPlace || '');
+                  if (isNonUkPlace(candPlace) && !isUkPlace(candPlace) && candPlace) continue;
+
+                  const candParts = parseNameParts(cand.name || '');
+                  if (candParts.surname?.toLowerCase() !== discoveredMaidenSurname.toLowerCase()) continue;
+
+                  const candYear = normalizeDate(cand.birthDate)?.year;
+                  if (motherBirthEst && candYear && Math.abs(candYear - motherBirthEst) > 15) continue;
+
+                  // Check geographic proximity
+                  if (childBirthPlace && candPlace) {
+                    const prox = placeProximity(candPlace, childBirthPlace);
+                    if (prox.proximity === 'distant') continue;
+                  }
+
+                  // Gender check
+                  const expectedGender = this.getExpectedGender(motherAsc);
+                  if (expectedGender && cand.gender && cand.gender !== expectedGender) continue;
+
+                  const motherGeneration = gen;
+                  const evidence = [{
+                    record_type: 'birth',
+                    source: 'FreeBMD',
+                    is_independent: true,
+                    details: `Mother's maiden surname ${discoveredMaidenSurname} discovered from child's FreeBMD birth record`,
+                    supports: ['identity'],
+                    weight: 20,
+                  }];
+
+                  this.storeOrUpdateAncestor(motherAsc, motherGeneration, {
+                    name: cand.name || `? ${discoveredMaidenSurname}`,
+                    gender: 'Female',
+                    birth_date: cand.birthDate || String(motherBirthEst || ''),
+                    birth_place: sanitizePlaceName(cand.birthPlace || childBirthPlace || ''),
+                    death_date: cand.deathDate || '',
+                    death_place: sanitizePlaceName(cand.deathPlace || ''),
+                    fs_person_id: cand.id || '',
+                    confidence: 'suggested',
+                    sources: ['FreeBMD', 'FamilySearch'],
+                    raw_data: { discoveryMethod: 'freebmd_maiden_fs_search', maidenSurname: discoveredMaidenSurname, fsPersonId: cand.id },
+                    confidence_score: 0,
+                    confidence_level: 'Suggested',
+                    evidence_chain: evidence,
+                    search_log: [{ step: 'freebmd_maiden_fs_search', maidenSurname: discoveredMaidenSurname, fsId: cand.id }],
+                    verification_notes: `FreeBMD maiden name + FS match: ${cand.name} (${cand.id})`,
+                    discovery_method: 'freebmd_maiden_fs_search',
+                  });
+
+                  storedAscNumbers.add(motherAsc);
+                  usedFsPersonIds.add(cand.id);
+                  console.log(`[Strategy3] ✓ Stored mother asc#${motherAsc}: ${cand.name} (maiden ${discoveredMaidenSurname})`);
+                  break;
+                }
+              } catch (err) {
+                console.log(`[Strategy3] asc#${motherAsc}: FS search for mother error: ${err.message}`);
+              }
+
+              // If no FS match, still store the maiden surname as a placeholder
+              if (!storedAscNumbers.has(motherAsc) && discoveredMaidenSurname) {
+                const motherGeneration = gen;
+                const evidence = [{
+                  record_type: 'birth',
+                  source: 'FreeBMD',
+                  is_independent: true,
+                  details: `Mother's maiden surname ${discoveredMaidenSurname} from child's birth index`,
+                  supports: ['identity'],
+                  weight: 15,
+                }];
+
+                this.storeOrUpdateAncestor(motherAsc, motherGeneration, {
+                  name: `? ${discoveredMaidenSurname}`,
+                  gender: 'Female',
+                  birth_date: childBirthYear ? String(childBirthYear - 26) : '',
+                  birth_place: childBirthPlace || '',
+                  death_date: '',
+                  death_place: '',
+                  fs_person_id: '',
+                  confidence: 'suggested',
+                  sources: ['FreeBMD'],
+                  raw_data: { discoveryMethod: 'freebmd_maiden_discovery', maidenSurname: discoveredMaidenSurname },
+                  confidence_score: 0,
+                  confidence_level: 'Suggested',
+                  evidence_chain: evidence,
+                  search_log: [{ step: 'freebmd_maiden_discovery', maidenSurname: discoveredMaidenSurname }],
+                  verification_notes: `FreeBMD birth discovery: mother's maiden surname ${discoveredMaidenSurname}`,
+                  discovery_method: 'freebmd_maiden_discovery',
+                });
+
+                storedAscNumbers.add(motherAsc);
+                console.log(`[Strategy3] ✓ Stored mother asc#${motherAsc}: ? ${discoveredMaidenSurname} (maiden name only)`);
+              }
+            }
+          }
+        }
+
+        // ── Strategy 3D: UNKNOWN father discovery via marriage of known parents ──
+        // Special case: when father is listed as UNKNOWN but we know the child's
+        // surname AND mother's maiden name, search FreeBMD marriages to find the father.
+        // Strategy: try both surnames (father's and mother's maiden) to avoid "too many matches"
+        // on common surnames. Also try findMarriage() for best-match scoring.
+        for (let asc = 2; asc <= maxAsc; asc += 2) {
+          if (storedAscNumbers.has(asc)) continue; // father already found
+          const motherAsc = asc + 1;
+          const childAsc = Math.floor(asc / 2);
+          const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+          if (!childRec) continue;
+
+          const childNP = parseNameParts(childRec.name || '');
+          const childBirthYear = normalizeDate(childRec.birth_date)?.year;
+          const childBirthPlace = childRec.birth_place || '';
+
+          // We need the mother's maiden name (from customer data, knownAnchors, or stored record)
+          let motherMaidenName = '';
+          const motherRec = this.db.getAncestorByAscNumber(this.jobId, motherAsc);
+          if (motherRec) {
+            const mp = parseNameParts(motherRec.name || '');
+            motherMaidenName = mp.surname || '';
+          }
+          if (!motherMaidenName) {
+            const anchor = this.knownAnchors[motherAsc];
+            if (anchor?.surname) motherMaidenName = anchor.surname;
+          }
+          if (!motherMaidenName || !childNP.surname || !childBirthYear) continue;
+
+          const fatherSurname = childNP.surname;
+          const yearFrom = Math.max(childBirthYear - 10, 1837);
+          const yearTo = childBirthYear + 2;
+          const district = this.extractDistrict(childBirthPlace) || '';
+
+          console.log(`[Strategy3D] asc#${asc}: Searching marriage of ${fatherSurname} × ${motherMaidenName} near ${childBirthYear}`);
+
+          let foundEntry = null;
+          let searchedBy = '';
+
+          try {
+            // Approach 1: Use findMarriage() with father's surname + spouse matching
+            let entry = await this.freebmdSource.findMarriage(
+              fatherSurname, '', motherMaidenName, yearFrom, yearTo, district
+            );
+            if (entry && entry.forenames && entry.spouseSurname?.toLowerCase() === motherMaidenName.toLowerCase()) {
+              foundEntry = entry;
+              searchedBy = 'father_surname';
+              console.log(`[Strategy3D] asc#${asc}: findMarriage(${fatherSurname}) → ${entry.forenames} ${entry.surname} × ${entry.spouseSurname} in ${entry.year}`);
+            }
+
+            // Approach 2: If father's surname failed, try mother's maiden name (less common)
+            // In FreeBMD marriage index, both parties are listed — search bride's entry to find groom
+            if (!foundEntry) {
+              const brideEntries = await this.freebmdSource.searchMarriages(
+                motherMaidenName, '', yearFrom, yearTo, district
+              );
+              for (const be of brideEntries) {
+                if (!be.spouseSurname) continue;
+                // The bride's entry: surname = maiden name, spouseSurname = groom's surname
+                if (be.surname?.toLowerCase() !== motherMaidenName.toLowerCase()) continue;
+                if (be.spouseSurname.toLowerCase() !== fatherSurname.toLowerCase()) continue;
+                // Now search the groom's entry to get his forenames
+                const groomEntries = await this.freebmdSource.searchMarriages(
+                  fatherSurname, '', be.year ? be.year : yearFrom, be.year ? be.year : yearTo, be.district || ''
+                );
+                for (const ge of groomEntries) {
+                  if (!ge.forenames) continue;
+                  if (ge.surname?.toLowerCase() !== fatherSurname.toLowerCase()) continue;
+                  if (ge.spouseSurname?.toLowerCase() !== motherMaidenName.toLowerCase()) continue;
+                  if (be.year && ge.year && be.year !== ge.year) continue;
+                  if (be.volume && ge.volume && be.volume !== ge.volume) continue;
+                  foundEntry = ge;
+                  searchedBy = 'mother_maiden_name';
+                  console.log(`[Strategy3D] asc#${asc}: Bride search(${motherMaidenName}) → ${ge.forenames} ${ge.surname} × ${ge.spouseSurname} in ${ge.year}`);
+                  break;
+                }
+                if (foundEntry) break;
+              }
+            }
+
+            // Approach 3: Try without district filter if nothing found
+            if (!foundEntry && district) {
+              let entry = await this.freebmdSource.findMarriage(
+                fatherSurname, '', motherMaidenName, yearFrom, yearTo, ''
+              );
+              if (entry && entry.forenames && entry.spouseSurname?.toLowerCase() === motherMaidenName.toLowerCase()) {
+                foundEntry = entry;
+                searchedBy = 'father_surname_no_district';
+                console.log(`[Strategy3D] asc#${asc}: findMarriage(${fatherSurname}, no district) → ${entry.forenames} ${entry.surname} × ${entry.spouseSurname} in ${entry.year}`);
+              }
+            }
+
+            if (foundEntry) {
+              const entry = foundEntry;
+              const fatherFullName = `${entry.forenames} ${entry.surname}`.trim();
+              const fatherBirthEst = (entry.year || childBirthYear) - 25;
+
+              console.log(`[Strategy3D] asc#${asc}: Found marriage → ${fatherFullName} married ${entry.spouseSurname} in ${entry.year} ${entry.district}`);
+
+              // Try FS search
+              let fatherFsId = null;
+              if (this.fsSource) {
+                try {
+                  const fsResults = await this.fsSource.searchPerson({
+                    givenName: entry.forenames.split(' ')[0] || '',
+                    surname: entry.surname || '',
+                    birthDate: String(fatherBirthEst),
+                    birthPlace: childBirthPlace || entry.district || 'England',
+                    count: 5,
+                  });
+                  for (const cand of fsResults) {
+                    if (this.rejectedFsIds.has(cand.id) || usedFsPersonIds.has(cand.id)) continue;
+                    const candFirst = (cand.name || '').split(' ')[0];
+                    if (!this.namesSimilar(candFirst, entry.forenames.split(' ')[0])) continue;
+                    fatherFsId = cand.id;
+                    console.log(`[Strategy3D] asc#${asc}: FS match → ${cand.name} (${cand.id})`);
+                    break;
+                  }
+                } catch (err) {
+                  console.log(`[Strategy3D] asc#${asc}: FS search error: ${err.message}`);
+                }
+              }
+
+              const evidence = [{
+                record_type: 'marriage',
+                source: 'FreeBMD',
+                is_independent: true,
+                details: `Marriage: ${fatherFullName} × ${entry.spouseSurname}, ${entry.year} ${entry.district}`,
+                year: entry.year, quarter: entry.quarter, district: entry.district,
+                volume: entry.volume, page: entry.page,
+                supports: ['identity', 'couple'],
+                weight: 25,
+              }];
+
+              const gen = Math.floor(Math.log2(asc));
+              this.storeOrUpdateAncestor(asc, gen, {
+                name: fatherFullName,
+                gender: 'Male',
+                birth_date: String(fatherBirthEst),
+                birth_place: entry.district || childBirthPlace || '',
+                death_date: '', death_place: '',
+                fs_person_id: fatherFsId || '',
+                confidence: 'suggested',
+                sources: ['FreeBMD'],
+                raw_data: { discoveryMethod: 'freebmd_unknown_father_discovery', searchedBy, marriageYear: entry.year, marriageDistrict: entry.district },
+                confidence_score: 0,
+                confidence_level: 'Suggested',
+                evidence_chain: evidence,
+                search_log: [{ step: 'freebmd_unknown_father_discovery', marriage: `${fatherFullName} × ${motherMaidenName}`, year: entry.year }],
+                verification_notes: `FreeBMD marriage: ${fatherFullName} × ${motherMaidenName} in ${entry.year}`,
+                discovery_method: 'freebmd_unknown_father_discovery',
+              });
+
+              storedAscNumbers.add(asc);
+              if (fatherFsId) usedFsPersonIds.add(fatherFsId);
+              console.log(`[Strategy3D] ✓ Discovered UNKNOWN father asc#${asc}: ${fatherFullName}`);
+            } else {
+              console.log(`[Strategy3D] asc#${asc}: No matching marriage found for ${fatherSurname} × ${motherMaidenName}`);
+            }
+          } catch (err) {
+            console.log(`[Strategy3D] asc#${asc}: FreeBMD marriage search error: ${err.message}`);
+          }
+        }
+
+        console.log(`[Engine] After Strategy 3: ${storedAscNumbers.size} ancestors stored`);
+
+        // ── Strategy 3 Second Pass: Re-run tree traversal for newly discovered ancestors ──
+        // Ancestors discovered by FreeBMD may now have FS person IDs, enabling tree traversal
+        // for THEIR parents (next generation).
+        const newlyDiscovered = [...storedAscNumbers].filter(asc => {
+          const rec = this.db.getAncestorByAscNumber(this.jobId, asc);
+          return rec && rec.fs_person_id && rec.discovery_method?.includes('freebmd');
+        });
+
+        if (newlyDiscovered.length > 0) {
+          console.log(`\n[Engine] ── Strategy 3 Second Pass: Tree traversal for ${newlyDiscovered.length} FreeBMD discoveries ──\n`);
+
+          for (const childAsc of newlyDiscovered) {
+            const fatherAsc = childAsc * 2;
+            const motherAsc = childAsc * 2 + 1;
+            if (fatherAsc > maxAsc) continue;
+            if (storedAscNumbers.has(fatherAsc) && storedAscNumbers.has(motherAsc)) continue;
+
+            const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+            if (!childRec?.fs_person_id) continue;
+
+            try {
+              const treeParents = await this.fsSource.getParents(childRec.fs_person_id);
+              if (!treeParents) continue;
+
+              const childGen = Math.floor(Math.log2(childAsc));
+              const parentGen = childGen + 1;
+
+              if (treeParents.father && !storedAscNumbers.has(fatherAsc) && fatherAsc <= maxAsc) {
+                const father = treeParents.father;
+                const validation = this.validateTreeParent(father, childRec, 'Male');
+                if (validation.valid) {
+                  this.storeOrUpdateAncestor(fatherAsc, parentGen, {
+                    name: father.name || '', gender: 'Male',
+                    birth_date: father.birthDate || '', birth_place: sanitizePlaceName(father.birthPlace || ''),
+                    death_date: father.deathDate || '', death_place: sanitizePlaceName(father.deathPlace || ''),
+                    fs_person_id: father.id || '',
+                    confidence: 'suggested',
+                    sources: ['FamilySearch'],
+                    raw_data: { discoveryMethod: 'tree_parents_second_pass', treeParentOf: childAsc },
+                    confidence_score: 0,
+                    confidence_level: 'Suggested',
+                    evidence_chain: [{ record_type: 'fs_tree_lead', source: 'FamilySearch', details: `Tree parent: ${father.name} (${father.id})`, supports: ['identity'], weight: 20 }],
+                    search_log: [{ step: 'tree_parents_second_pass', childAsc, parentId: father.id }],
+                    verification_notes: `Tree parent of FreeBMD-discovered asc#${childAsc}`,
+                    discovery_method: 'tree_parents_second_pass',
+                  });
+                  storedAscNumbers.add(fatherAsc);
+                  if (father.id) usedFsPersonIds.add(father.id);
+                  console.log(`[Strategy3 2ndPass] ✓ asc#${fatherAsc}: ${father.name} (${father.id})`);
+                }
+              }
+
+              if (treeParents.mother && !storedAscNumbers.has(motherAsc) && motherAsc <= maxAsc) {
+                const mother = treeParents.mother;
+                const validation = this.validateTreeParent(mother, childRec, 'Female');
+                if (validation.valid) {
+                  this.storeOrUpdateAncestor(motherAsc, parentGen, {
+                    name: mother.name || '', gender: 'Female',
+                    birth_date: mother.birthDate || '', birth_place: sanitizePlaceName(mother.birthPlace || ''),
+                    death_date: mother.deathDate || '', death_place: sanitizePlaceName(mother.deathPlace || ''),
+                    fs_person_id: mother.id || '',
+                    confidence: 'suggested',
+                    sources: ['FamilySearch'],
+                    raw_data: { discoveryMethod: 'tree_parents_second_pass', treeParentOf: childAsc },
+                    confidence_score: 0,
+                    confidence_level: 'Suggested',
+                    evidence_chain: [{ record_type: 'fs_tree_lead', source: 'FamilySearch', details: `Tree parent: ${mother.name} (${mother.id})`, supports: ['identity'], weight: 20 }],
+                    search_log: [{ step: 'tree_parents_second_pass', childAsc, parentId: mother.id }],
+                    verification_notes: `Tree parent of FreeBMD-discovered asc#${childAsc}`,
+                    discovery_method: 'tree_parents_second_pass',
+                  });
+                  storedAscNumbers.add(motherAsc);
+                  if (mother.id) usedFsPersonIds.add(mother.id);
+                  console.log(`[Strategy3 2ndPass] ✓ asc#${motherAsc}: ${mother.name} (${mother.id})`);
+                }
+              }
+            } catch (err) {
+              console.log(`[Strategy3 2ndPass] asc#${childAsc}: getParents error: ${err.message}`);
+            }
+          }
+
+          console.log(`[Engine] After Strategy 3 second pass: ${storedAscNumbers.size} ancestors stored`);
+        }
+      }
 
       // ── Phase 3b: Score ancestors bottom-up using record-based points ──
       // Score generation by generation (children first, then parents) so family
