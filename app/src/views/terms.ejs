@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms & Conditions and Privacy Policy — They Made Me</title>
+    <meta name="description" content="Terms of service and privacy policy for They Made Me genealogy research service.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --forest: #1a3a2a;
+            --forest-light: #2d5a3f;
+            --sage: #6b8f71;
+            --sage-light: #a8c5ad;
+            --cream: #faf6f0;
+            --warm-white: #fefcf9;
+            --parchment: #f0e8da;
+            --text: #2c2c2c;
+            --text-muted: #6b6b6b;
+            --border: #e0d8cc;
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            color: var(--text);
+            background: var(--warm-white);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ==================== HEADER ==================== */
+        header {
+            background: var(--forest);
+            padding: 20px 24px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 3px solid var(--sage);
+        }
+        .header-inner {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-logo {
+            font-family: 'Instrument Serif', serif;
+            font-size: 22px;
+            color: var(--cream);
+            text-decoration: none;
+            letter-spacing: -0.5px;
+        }
+        .header-logo span { color: var(--sage-light); }
+        .header-back {
+            color: var(--sage-light);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header-back:hover { color: var(--cream); }
+        .header-back svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* ==================== MAIN CONTENT ==================== */
+        .page-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+
+        .page-title {
+            font-family: 'Instrument Serif', serif;
+            font-size: 38px;
+            color: var(--forest);
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+            line-height: 1.2;
+        }
+
+        .page-subtitle {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-bottom: 40px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Table of contents */
+        .toc {
+            background: var(--cream);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            margin-bottom: 48px;
+        }
+        .toc h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--forest);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .toc-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 32px;
+        }
+        .toc a {
+            color: var(--sage);
+            text-decoration: none;
+            font-size: 14px;
+            line-height: 1.8;
+            transition: color 0.2s;
+        }
+        .toc a:hover { color: var(--forest); text-decoration: underline; }
+
+        /* Section divider */
+        .section-divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 56px 0 40px;
+            scroll-margin-top: 80px;
+        }
+        .section-divider h2 {
+            font-family: 'Instrument Serif', serif;
+            font-size: 30px;
+            color: var(--forest);
+            white-space: nowrap;
+            letter-spacing: -0.3px;
+        }
+        .section-divider::after {
+            content: '';
+            flex: 1;
+            height: 2px;
+            background: linear-gradient(to right, var(--sage-light), transparent);
+        }
+
+        /* Section headings */
+        h3 {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--forest);
+            margin: 36px 0 12px;
+            scroll-margin-top: 80px;
+        }
+        h3 .section-number {
+            display: inline-block;
+            background: var(--sage);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        p {
+            margin-bottom: 14px;
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        ul, ol {
+            margin: 12px 0 14px 24px;
+            font-size: 15px;
+        }
+        li { margin-bottom: 6px; }
+
+        strong { font-weight: 600; color: var(--forest); }
+
+        /* Info callout boxes */
+        .callout {
+            background: var(--cream);
+            border-left: 4px solid var(--sage);
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .callout.warning {
+            border-left-color: #d4a849;
+            background: #fef9ef;
+        }
+        .callout p { margin-bottom: 0; font-size: 14px; }
+
+        /* Contact box */
+        .contact-box {
+            background: var(--forest);
+            color: var(--cream);
+            border-radius: 12px;
+            padding: 32px;
+            margin: 40px 0;
+        }
+        .contact-box h3 {
+            color: var(--cream);
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-size: 20px;
+        }
+        .contact-box p { color: var(--sage-light); margin-bottom: 8px; }
+        .contact-box a { color: var(--sage-light); }
+        .contact-box a:hover { color: white; }
+
+        /* Data table */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 20px;
+            font-size: 14px;
+        }
+        .data-table th {
+            text-align: left;
+            background: var(--forest);
+            color: var(--cream);
+            padding: 10px 16px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .data-table th:first-child { border-radius: 8px 0 0 0; }
+        .data-table th:last-child { border-radius: 0 8px 0 0; }
+        .data-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table tr:nth-child(even) td { background: var(--cream); }
+        .data-table tr:last-child td:first-child { border-radius: 0 0 0 8px; }
+        .data-table tr:last-child td:last-child { border-radius: 0 0 8px 0; }
+
+        /* Footer */
+        footer {
+            background: var(--forest);
+            color: var(--sage-light);
+            text-align: center;
+            padding: 24px;
+            font-size: 13px;
+        }
+        footer a { color: var(--sage-light); text-decoration: none; }
+        footer a:hover { color: var(--cream); }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .page-title { font-size: 28px; }
+            .section-divider h2 { font-size: 24px; }
+            .toc-columns { grid-template-columns: 1fr; }
+            .page-container { padding: 32px 16px 60px; }
+            .contact-box { padding: 24px 20px; }
+            .data-table { font-size: 13px; }
+            .data-table th, .data-table td { padding: 8px 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ==================== HEADER ==================== -->
+<header>
+    <div class="header-inner">
+        <a href="/" class="header-logo">They Made <span>Me</span></a>
+        <a href="/" class="header-back">
+            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to home
+        </a>
+    </div>
+</header>
+
+<!-- ==================== MAIN CONTENT ==================== -->
+<div class="page-container">
+
+    <h1 class="page-title">Terms & Conditions and Privacy Policy</h1>
+    <p class="page-subtitle">Last updated: February 2026</p>
+
+    <!-- Table of Contents -->
+    <div class="toc">
+        <h2>Contents</h2>
+        <div class="toc-columns">
+            <div>
+                <strong style="font-size: 13px; display: block; margin-bottom: 8px; color: var(--forest);">Terms & Conditions</strong>
+                <a href="#tc-1">1. About Our Service</a><br>
+                <a href="#tc-2">2. Placing an Order</a><br>
+                <a href="#tc-3">3. Your Responsibilities</a><br>
+                <a href="#tc-4">4. Research Accuracy</a><br>
+                <a href="#tc-5">5. Intellectual Property</a><br>
+                <a href="#tc-6">6. Pricing and Payment</a><br>
+                <a href="#tc-7">7. Refunds and Cancellations</a><br>
+                <a href="#tc-8">8. Limitation of Liability</a><br>
+                <a href="#tc-9">9. Changes to These Terms</a><br>
+                <a href="#tc-10">10. Governing Law</a>
+            </div>
+            <div>
+                <strong style="font-size: 13px; display: block; margin-bottom: 8px; color: var(--forest);">Privacy Policy</strong>
+                <a href="#pp-1">1. Who We Are</a><br>
+                <a href="#pp-2">2. What Data We Collect</a><br>
+                <a href="#pp-3">3. Why We Collect It</a><br>
+                <a href="#pp-4">4. Legal Basis for Processing</a><br>
+                <a href="#pp-5">5. Third-Party Services</a><br>
+                <a href="#pp-6">6. How We Store and Protect Data</a><br>
+                <a href="#pp-7">7. Data Retention</a><br>
+                <a href="#pp-8">8. Your Rights Under GDPR</a><br>
+                <a href="#pp-9">9. Cookies</a><br>
+                <a href="#pp-10">10. Children's Data</a><br>
+                <a href="#pp-11">11. Contact Us</a>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================================================ -->
+    <!--                    TERMS & CONDITIONS                        -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider" id="terms">
+        <h2>Terms & Conditions</h2>
+    </div>
+
+    <p>These terms apply to all services provided by They Made Me ("we", "us", "our"). By placing an order with us, you ("the customer", "you") agree to be bound by these terms. Please read them carefully before ordering.</p>
+
+
+    <!-- Section 1 -->
+    <h3 id="tc-1"><span class="section-number">1</span> About Our Service</h3>
+
+    <p>They Made Me is a UK-based genealogy research service. We take the information you provide about your family — names, dates, and places — and research your ancestry using a combination of:</p>
+
+    <ul>
+        <li><strong>Historical record databases</strong> including FamilySearch.org (operated by The Church of Jesus Christ of Latter-day Saints) and FreeBMD (an index of civil registration records for England and Wales).</li>
+        <li><strong>Artificial intelligence tools</strong> (OpenAI's GPT-4o and Anthropic's Claude) to review, cross-reference, and validate the research findings.</li>
+        <li><strong>Manual review</strong> by our research team to verify results and resolve ambiguities.</li>
+    </ul>
+
+    <p>Our products include family tree fan charts (delivered as high-quality PDF files), GEDCOM data files (the universal standard for genealogy data), and accompanying research reports. The specific deliverables depend on the package you order.</p>
+
+
+    <!-- Section 2 -->
+    <h3 id="tc-2"><span class="section-number">2</span> Placing an Order</h3>
+
+    <p>When you place an order through our website, you are making an offer to purchase our research services. We will confirm acceptance of your order by email. A binding contract is formed when we send this confirmation.</p>
+
+    <p>We reserve the right to decline any order if we believe we cannot deliver a satisfactory result — for example, if the starting information provided is insufficient, or if the records for a particular geographic region or time period are known to be very limited.</p>
+
+
+    <!-- Section 3 -->
+    <h3 id="tc-3"><span class="section-number">3</span> Your Responsibilities</h3>
+
+    <p>The quality of our research depends heavily on the accuracy of the information you provide. You agree to:</p>
+
+    <ul>
+        <li>Provide <strong>accurate starting information</strong> to the best of your knowledge, including full names, approximate dates (birth, marriage, death), and locations for the individuals you want us to research.</li>
+        <li>Tell us about any <strong>known name changes</strong>, adoptions, or other circumstances that might affect the records trail.</li>
+        <li>Respond to any follow-up questions from our team in a <strong>timely manner</strong>, as delays can affect the research process.</li>
+        <li>Use the research results for <strong>personal, non-commercial purposes</strong> unless otherwise agreed in writing.</li>
+    </ul>
+
+    <div class="callout">
+        <p><strong>Tip:</strong> The more you can tell us up front — even if you are unsure about some details — the better our research will be. Maiden names, approximate years, and general locations all help enormously.</p>
+    </div>
+
+
+    <!-- Section 4 -->
+    <h3 id="tc-4"><span class="section-number">4</span> Research Accuracy</h3>
+
+    <p>Genealogy research is, by its nature, an imperfect process. We want to be completely transparent about this:</p>
+
+    <ul>
+        <li><strong>Historical records are incomplete.</strong> Many records have been lost, damaged, or never created in the first place. Particularly before civil registration began in England and Wales in 1837, records become significantly sparser.</li>
+        <li><strong>Records can be ambiguous.</strong> Common names, spelling variations, transcription errors in original documents, and indexing mistakes in databases can all lead to difficulties in identifying the correct individuals.</li>
+        <li><strong>Some lines will go further than others.</strong> It is normal for some branches of a family tree to be traceable back many generations while others hit dead ends much sooner.</li>
+        <li><strong>AI-assisted research is not infallible.</strong> While we use AI tools to help cross-reference and validate findings, these tools can make errors. All AI-generated suggestions are reviewed before inclusion in your final results.</li>
+    </ul>
+
+    <div class="callout warning">
+        <p><strong>Important:</strong> We do not guarantee that we will be able to trace every line of your family tree to a specific number of generations. We do guarantee that we will conduct thorough, diligent research using the best tools and sources available to us, and that we will clearly indicate our level of confidence in each connection we identify.</p>
+    </div>
+
+    <p>Where we identify a connection that we are less than confident about, we will mark it as uncertain or provisional in your results. We will never knowingly present unverified information as fact.</p>
+
+
+    <!-- Section 5 -->
+    <h3 id="tc-5"><span class="section-number">5</span> Intellectual Property</h3>
+
+    <p><strong>Your family data belongs to you.</strong> The names, dates, places, and relationships that make up your family tree are your personal data and you retain full ownership of them. You are free to share, publish, or use this information however you wish.</p>
+
+    <p><strong>Our product designs belong to us.</strong> The visual design of our fan charts, the layout and formatting of our research reports, and any custom artwork or branding elements are the intellectual property of They Made Me. You may not reproduce these designs for commercial purposes without our written permission.</p>
+
+    <p><strong>GEDCOM files are yours to keep and use freely.</strong> The GEDCOM data files we provide are exported in an open standard format and you may import them into any genealogy software or share them as you see fit.</p>
+
+    <p>The underlying historical records we reference are in the public domain or are made available through third-party databases under their own terms of service.</p>
+
+
+    <!-- Section 6 -->
+    <h3 id="tc-6"><span class="section-number">6</span> Pricing and Payment</h3>
+
+    <p>All prices are quoted in pounds sterling (GBP) and are inclusive of VAT where applicable. Payment is taken at the time of ordering via Stripe, our payment processor. We accept major credit and debit cards.</p>
+
+    <p>We reserve the right to change our prices at any time, but any price changes will not affect orders that have already been confirmed.</p>
+
+
+    <!-- Section 7 -->
+    <h3 id="tc-7"><span class="section-number">7</span> Refunds and Cancellations</h3>
+
+    <p>Because our service involves bespoke research work that begins shortly after your order is confirmed, our refund policy is as follows:</p>
+
+    <ul>
+        <li><strong>Before research begins:</strong> If you cancel your order before we have started work, you will receive a full refund.</li>
+        <li><strong>After research has begun:</strong> Once research is underway, we are unable to offer a full refund because the research time and resources have already been committed. We may, at our discretion, offer a partial refund depending on how far the work has progressed.</li>
+        <li><strong>Completed orders:</strong> Once the final deliverables have been sent to you, no refund is available.</li>
+        <li><strong>Unsatisfactory results:</strong> If you believe our research contains significant errors, please contact us within 14 days of receiving your results. We will review the concerns and, where appropriate, carry out additional research at no extra charge. If we agree that the results fall materially short of what was promised, we will offer a proportionate refund or credit.</li>
+    </ul>
+
+    <p>This policy does not affect your statutory rights as a consumer under UK law.</p>
+
+
+    <!-- Section 8 -->
+    <h3 id="tc-8"><span class="section-number">8</span> Limitation of Liability</h3>
+
+    <p>To the fullest extent permitted by law:</p>
+
+    <ul>
+        <li>Our total liability to you for any claim arising from our services shall not exceed the amount you paid for the specific order in question.</li>
+        <li>We shall not be liable for any indirect, consequential, or incidental losses, including but not limited to loss of data, emotional distress arising from research findings, or decisions made based on our research.</li>
+        <li>We are not liable for the accuracy or completeness of third-party records, databases, or services that we rely on in conducting our research.</li>
+        <li>We are not responsible for any disruption to our service caused by events beyond our reasonable control, including server outages, third-party API downtime, or force majeure events.</li>
+    </ul>
+
+    <p>Nothing in these terms excludes or limits our liability for death or personal injury caused by our negligence, fraud or fraudulent misrepresentation, or any other liability that cannot be excluded under applicable law.</p>
+
+
+    <!-- Section 9 -->
+    <h3 id="tc-9"><span class="section-number">9</span> Changes to These Terms</h3>
+
+    <p>We may update these terms from time to time. Any changes will be posted on this page with a revised "last updated" date. Changes will not apply retroactively to orders that have already been placed and confirmed.</p>
+
+    <p>We recommend checking this page periodically if you are a returning customer.</p>
+
+
+    <!-- Section 10 -->
+    <h3 id="tc-10"><span class="section-number">10</span> Governing Law</h3>
+
+    <p>These terms are governed by and construed in accordance with the laws of <strong>England and Wales</strong>. Any disputes arising from these terms or our services shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+
+    <p>If any provision of these terms is found to be invalid or unenforceable, the remaining provisions shall continue in full force and effect.</p>
+
+
+
+    <!-- ============================================================ -->
+    <!--                      PRIVACY POLICY                          -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider" id="privacy" style="margin-top: 72px;">
+        <h2>Privacy Policy</h2>
+    </div>
+
+    <p>This privacy policy explains how They Made Me collects, uses, stores, and protects your personal data in accordance with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</p>
+
+
+    <!-- PP Section 1 -->
+    <h3 id="pp-1"><span class="section-number">1</span> Who We Are</h3>
+
+    <p>They Made Me is the data controller responsible for your personal data. We are a UK-based genealogy research service operating the website <strong>theymademe.co.uk</strong>.</p>
+
+    <p>If you have any questions about how we handle your data, you can contact us using the details in <a href="#pp-11" style="color: var(--sage);">Section 11</a> below.</p>
+
+
+    <!-- PP Section 2 -->
+    <h3 id="pp-2"><span class="section-number">2</span> What Data We Collect</h3>
+
+    <p>We collect and process the following categories of personal data:</p>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Data Category</th>
+                <th>Examples</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Customer contact details</strong></td>
+                <td>Your name, email address, phone number</td>
+                <td>Provided by you via our order form</td>
+            </tr>
+            <tr>
+                <td><strong>Family information</strong></td>
+                <td>Names, dates of birth/death, places of birth/residence, maiden names, and relationships of your family members</td>
+                <td>Provided by you, and supplemented through our research</td>
+            </tr>
+            <tr>
+                <td><strong>Payment information</strong></td>
+                <td>Card type, last four digits of card number, billing address</td>
+                <td>Processed by Stripe (we do not store full card numbers)</td>
+            </tr>
+            <tr>
+                <td><strong>Research results</strong></td>
+                <td>Family tree data, source citations, confidence ratings, research notes</td>
+                <td>Generated through our research process</td>
+            </tr>
+            <tr>
+                <td><strong>Technical data</strong></td>
+                <td>IP address, browser type, pages visited, session data</td>
+                <td>Collected automatically when you visit our website</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="callout">
+        <p><strong>Special category data:</strong> Genealogy research may incidentally reveal information about ethnicity, religion, or health conditions of deceased ancestors. We treat all such data with particular care and do not process it beyond what is necessary to fulfil your order.</p>
+    </div>
+
+
+    <!-- PP Section 3 -->
+    <h3 id="pp-3"><span class="section-number">3</span> Why We Collect It</h3>
+
+    <p>We use your personal data for the following purposes:</p>
+
+    <ul>
+        <li><strong>Fulfilling your order</strong> — to conduct genealogy research, generate your family tree products, and deliver them to you.</li>
+        <li><strong>Communicating with you</strong> — to send order confirmations, ask follow-up questions about your family, provide progress updates, and deliver your completed results.</li>
+        <li><strong>Processing payments</strong> — to charge for our services and manage refunds if applicable.</li>
+        <li><strong>Improving our service</strong> — to understand how customers use our website and to improve the accuracy and quality of our research methods.</li>
+        <li><strong>Legal obligations</strong> — to comply with tax, accounting, and other legal requirements.</li>
+    </ul>
+
+    <p>We will never sell your personal data to third parties. We will never use your family information for marketing purposes without your explicit consent.</p>
+
+
+    <!-- PP Section 4 -->
+    <h3 id="pp-4"><span class="section-number">4</span> Legal Basis for Processing</h3>
+
+    <p>Under the UK GDPR, we must have a lawful basis for processing your personal data. We rely on the following:</p>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Legal Basis</th>
+                <th>What It Covers</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Contract performance</strong><br><small style="color: var(--text-muted);">Article 6(1)(b)</small></td>
+                <td>Processing your order, conducting research, delivering results, and handling payments. This is necessary to fulfil our contract with you.</td>
+            </tr>
+            <tr>
+                <td><strong>Legitimate interest</strong><br><small style="color: var(--text-muted);">Article 6(1)(f)</small></td>
+                <td>Improving our research methods, maintaining the security of our systems, and preventing fraud. We have balanced these interests against your rights and believe they do not override your data protection rights.</td>
+            </tr>
+            <tr>
+                <td><strong>Legal obligation</strong><br><small style="color: var(--text-muted);">Article 6(1)(c)</small></td>
+                <td>Retaining financial records for tax and accounting purposes as required by HMRC.</td>
+            </tr>
+            <tr>
+                <td><strong>Consent</strong><br><small style="color: var(--text-muted);">Article 6(1)(a)</small></td>
+                <td>Sending you marketing emails or sharing your results publicly (e.g., in case studies). We will only do this if you have given explicit, freely given consent, which you can withdraw at any time.</td>
+            </tr>
+        </tbody>
+    </table>
+
+
+    <!-- PP Section 5 -->
+    <h3 id="pp-5"><span class="section-number">5</span> Third-Party Services</h3>
+
+    <p>To deliver our service, we share limited data with the following third-party processors. We have ensured that each has appropriate data protection safeguards in place:</p>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Service</th>
+                <th>Provider</th>
+                <th>Data Shared</th>
+                <th>Purpose</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>FamilySearch</strong></td>
+                <td>The Church of Jesus Christ of Latter-day Saints (USA)</td>
+                <td>Ancestor names, dates, and places</td>
+                <td>Searching historical genealogy records to build your family tree</td>
+            </tr>
+            <tr>
+                <td><strong>OpenAI (GPT-4o)</strong></td>
+                <td>OpenAI, Inc. (USA)</td>
+                <td>Anonymised research data (ancestor names, dates, places, source records)</td>
+                <td>AI-assisted review and validation of research findings</td>
+            </tr>
+            <tr>
+                <td><strong>Anthropic (Claude)</strong></td>
+                <td>Anthropic, PBC (USA)</td>
+                <td>Anonymised research data (ancestor names, dates, places, source records)</td>
+                <td>AI-assisted review and cross-referencing of genealogy evidence</td>
+            </tr>
+            <tr>
+                <td><strong>FreeBMD</strong></td>
+                <td>Free UK Genealogy (UK)</td>
+                <td>Ancestor names, dates</td>
+                <td>Cross-referencing against civil registration indexes for England and Wales</td>
+            </tr>
+            <tr>
+                <td><strong>Stripe</strong></td>
+                <td>Stripe, Inc. (USA)</td>
+                <td>Payment card details, billing address</td>
+                <td>Processing payments securely</td>
+            </tr>
+            <tr>
+                <td><strong>Hostinger</strong></td>
+                <td>Hostinger International Ltd (Lithuania/Cyprus)</td>
+                <td>All data is stored on their servers</td>
+                <td>Website and database hosting</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="callout warning">
+        <p><strong>International transfers:</strong> Some of our third-party processors are based in the United States. Where data is transferred outside the UK, we rely on the processor's compliance with appropriate safeguards, including Standard Contractual Clauses (SCCs) approved by the UK Information Commissioner's Office, or equivalent measures. Both OpenAI and Anthropic operate zero-retention API policies for business data, meaning your data is not stored or used for model training.</p>
+    </div>
+
+    <p>We do not share your personal data with any other third parties except where required by law (e.g., a court order or regulatory request).</p>
+
+
+    <!-- PP Section 6 -->
+    <h3 id="pp-6"><span class="section-number">6</span> How We Store and Protect Data</h3>
+
+    <p>Your data is stored in a SQLite database on a virtual private server (VPS) hosted by Hostinger. We take the following measures to protect it:</p>
+
+    <ul>
+        <li><strong>Encryption in transit:</strong> All data transmitted between your browser and our server is encrypted using TLS/SSL (HTTPS).</li>
+        <li><strong>Server security:</strong> Our VPS is protected by a firewall, SSH key authentication, and regular security updates.</li>
+        <li><strong>Access control:</strong> Only authorised personnel have access to the database and server. Access is protected by strong passwords and two-factor authentication where available.</li>
+        <li><strong>Payment security:</strong> We never see or store your full card details. All payment processing is handled by Stripe, which is PCI DSS Level 1 certified (the highest level of payment security certification).</li>
+        <li><strong>Backups:</strong> Regular backups are taken to prevent data loss.</li>
+    </ul>
+
+    <p>While we implement reasonable security measures, no system is completely secure. In the unlikely event of a data breach, we will notify the Information Commissioner's Office (ICO) within 72 hours as required by the UK GDPR, and we will notify affected individuals without undue delay if there is a high risk to their rights and freedoms.</p>
+
+
+    <!-- PP Section 7 -->
+    <h3 id="pp-7"><span class="section-number">7</span> Data Retention</h3>
+
+    <p>We retain your data for the following periods:</p>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Data Type</th>
+                <th>Retention Period</th>
+                <th>Reason</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Customer contact details</td>
+                <td>3 years after your last order</td>
+                <td>To handle any follow-up queries and provide ongoing support</td>
+            </tr>
+            <tr>
+                <td>Family tree research data</td>
+                <td>3 years after delivery</td>
+                <td>To allow you to request re-delivery or additional research</td>
+            </tr>
+            <tr>
+                <td>Payment records</td>
+                <td>6 years after transaction</td>
+                <td>HMRC tax record-keeping requirements</td>
+            </tr>
+            <tr>
+                <td>Session and technical data</td>
+                <td>30 days</td>
+                <td>Website security and troubleshooting</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>After the retention period expires, your data will be securely deleted. You can request earlier deletion at any time (see <a href="#pp-8" style="color: var(--sage);">Section 8</a>).</p>
+
+
+    <!-- PP Section 8 -->
+    <h3 id="pp-8"><span class="section-number">8</span> Your Rights Under GDPR</h3>
+
+    <p>Under the UK GDPR, you have the following rights regarding your personal data:</p>
+
+    <ul>
+        <li><strong>Right of access</strong> — You can request a copy of all personal data we hold about you. We will respond within one month.</li>
+        <li><strong>Right to rectification</strong> — If any of the data we hold about you is inaccurate or incomplete, you can ask us to correct it.</li>
+        <li><strong>Right to erasure ("right to be forgotten")</strong> — You can ask us to delete your personal data, and we will do so unless we have a legal obligation to retain it (e.g., financial records for HMRC).</li>
+        <li><strong>Right to restrict processing</strong> — You can ask us to limit how we use your data while a concern is being resolved.</li>
+        <li><strong>Right to data portability</strong> — You can request your family tree data in a machine-readable format (such as GEDCOM or JSON) to transfer to another service.</li>
+        <li><strong>Right to object</strong> — You can object to processing based on legitimate interest, and we will stop unless we can demonstrate compelling legitimate grounds.</li>
+        <li><strong>Right to withdraw consent</strong> — Where processing is based on consent, you can withdraw that consent at any time by contacting us.</li>
+    </ul>
+
+    <p>To exercise any of these rights, please contact us using the details in <a href="#pp-11" style="color: var(--sage);">Section 11</a>. We will respond to all legitimate requests within <strong>one calendar month</strong>. There is no fee for exercising your rights, except where requests are manifestly unfounded or excessive.</p>
+
+    <p>If you are not satisfied with how we handle your data, you have the right to lodge a complaint with the <strong>Information Commissioner's Office (ICO)</strong>:</p>
+    <ul>
+        <li>Website: <a href="https://ico.org.uk" target="_blank" rel="noopener" style="color: var(--sage);">ico.org.uk</a></li>
+        <li>Phone: 0303 123 1113</li>
+    </ul>
+
+
+    <!-- PP Section 9 -->
+    <h3 id="pp-9"><span class="section-number">9</span> Cookies</h3>
+
+    <p>Our website uses only <strong>strictly necessary session cookies</strong> to keep you logged in during your visit. These cookies:</p>
+
+    <ul>
+        <li>Are essential for the website to function.</li>
+        <li>Do not track your browsing activity across other websites.</li>
+        <li>Do not contain personal information beyond a session identifier.</li>
+        <li>Expire when you close your browser or after 7 days, whichever comes first.</li>
+    </ul>
+
+    <p>We do <strong>not</strong> use any analytics cookies, advertising cookies, or third-party tracking cookies. We do not use Google Analytics or similar services.</p>
+
+    <p>Because we only use strictly necessary cookies, we do not require your consent under the Privacy and Electronic Communications Regulations (PECR). You can, of course, configure your browser to reject cookies, but this may prevent parts of the website from functioning correctly.</p>
+
+
+    <!-- PP Section 10 -->
+    <h3 id="pp-10"><span class="section-number">10</span> Children's Data</h3>
+
+    <p>Our service is not directed at children under 16. We do not knowingly collect personal data from children. Genealogy research may involve the names and dates of minors as part of a family tree — this data is processed as part of the wider family research and is treated with the same protections as all other data.</p>
+
+    <p>If you are under 16 and have provided us with personal data, or if you are a parent or guardian and believe your child has provided us with personal data, please contact us and we will delete it promptly.</p>
+
+
+    <!-- PP Section 11 -->
+    <h3 id="pp-11"><span class="section-number">11</span> Contact Us</h3>
+
+    <p>For any questions about these terms, our privacy practices, or to exercise your data rights, you can reach us at:</p>
+
+    <div class="contact-box">
+        <h3>They Made Me</h3>
+        <p>Email: <a href="mailto:hello@theymademe.co.uk">hello@theymademe.co.uk</a></p>
+        <p>Website: <a href="https://theymademe.co.uk">theymademe.co.uk</a></p>
+        <p style="margin-top: 16px; font-size: 13px; color: var(--sage-light);">We aim to respond to all enquiries within 2 working days.</p>
+    </div>
+
+    <p style="text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border);">
+        These terms and privacy policy were last updated in <strong>February 2026</strong>.<br>
+        They Made Me is a trading name registered in England and Wales.
+    </p>
+
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<footer>
+    <p>&copy; 2026 They Made Me. All rights reserved. | <a href="/">Home</a></p>
+</footer>
+
+</body>
+</html>

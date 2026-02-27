@@ -29,7 +29,7 @@ function initialize() {
       customer_name TEXT NOT NULL,
       customer_email TEXT,
       status TEXT DEFAULT 'pending',
-      generations INTEGER DEFAULT 4,
+      generations INTEGER DEFAULT 6,
       input_data TEXT,
       results TEXT,
       person_id TEXT,
@@ -328,8 +328,17 @@ function updateAncestorById(id, updates) {
   getDb().prepare(`UPDATE ancestors SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
-function deleteSearchCandidates(researchJobId) {
-  getDb().prepare('DELETE FROM search_candidates WHERE research_job_id = ?').run(researchJobId);
+function deleteSearchCandidates(researchJobId, preserveRejections = false) {
+  if (preserveRejections) {
+    // Only delete non-rejected candidates — preserve admin rejection history
+    getDb().prepare(`
+      DELETE FROM search_candidates
+      WHERE research_job_id = ?
+        AND (rejection_reason IS NULL OR rejection_reason = '')
+    `).run(researchJobId);
+  } else {
+    getDb().prepare('DELETE FROM search_candidates WHERE research_job_id = ?').run(researchJobId);
+  }
 }
 
 // Search Candidates
@@ -402,26 +411,19 @@ function deleteDescendantAncestors(researchJobId, ascNumber) {
   return toDelete;
 }
 
-// Get all FS person IDs that were previously selected for a given asc number
+// Get all FS person IDs that were explicitly rejected by admin
 // (used to blacklist rejected persons on re-research)
 function getRejectedFsIds(researchJobId) {
-  // Look at search_candidates that were selected=1 but whose ancestor record was later deleted
-  // (meaning they were rejected via the re-research flow)
-  // Simpler approach: get all previously-selected FS IDs from search_candidates for this job
-  // that no longer have a matching ancestor record
+  // Find all search_candidates that have a rejection_reason set
+  // These were explicitly rejected by admin via the reresearch flow
   const conn = getDb();
   const rows = conn.prepare(`
-    SELECT DISTINCT sc.fs_person_id, sc.target_asc_number
+    SELECT DISTINCT sc.fs_person_id
     FROM search_candidates sc
     WHERE sc.research_job_id = ?
-      AND sc.selected = 1
       AND sc.fs_person_id != ''
-      AND NOT EXISTS (
-        SELECT 1 FROM ancestors a
-        WHERE a.research_job_id = sc.research_job_id
-          AND a.ascendancy_number = sc.target_asc_number
-          AND a.fs_person_id = sc.fs_person_id
-      )
+      AND sc.rejection_reason IS NOT NULL
+      AND sc.rejection_reason != ''
   `).all(researchJobId);
   return rows.map(r => r.fs_person_id);
 }

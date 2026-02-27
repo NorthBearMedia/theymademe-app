@@ -1,5 +1,6 @@
 const fsApi = require('./familysearch-api');
 const { districtMatches } = require('./freebmd-client'); // used by legacy methods
+const { resolveCounty, countyProximity, placeProximity } = require('./county-data');
 
 // ─── Utility Functions ───────────────────────────────────────────────
 
@@ -118,6 +119,11 @@ const NON_UK_COUNTRIES = new Set([
   'india', 'china', 'japan', 'brazil', 'mexico', 'russia',
   'finland', 'iceland', 'portugal', 'poland', 'czech', 'hungary', 'romania',
   'nula-seleän', 'tāmaki-makau-rau',
+  // FamilySearch Old English / localized country names
+  'svedän', 'sveþjóð', 'suomi', 'finnland', 'danmark', 'danmǫrk',
+  'deutschland', 'þýskaland', 'frankreich', 'frankrike',
+  'nederland', 'belgien', 'schweiz', 'österreich', 'ísland',
+  'irland', 'italia', 'españa', 'espanha', 'skåne',
   // Indian states (FS uses these without 'India')
   'uttar pradesh', 'madhya pradesh', 'andhra pradesh', 'tamil nadu', 'karnataka',
   'maharashtra', 'gujarat', 'rajasthan', 'bihar', 'west bengal', 'punjab',
@@ -142,6 +148,11 @@ const UK_INDICATORS = new Set([
   'edinburgh', 'glasgow', 'belfast', 'dublin', 'bradford', 'stoke',
   'wolverhampton', 'sunderland', 'portsmouth', 'southampton', 'brighton',
   'plymouth', 'reading', 'hull', 'blackpool', 'preston', 'bolton',
+  // FamilySearch Old English county names
+  'sūþrīge', 'heorotfordscír', 'centlond', 'bro an hañv',
+  'oxenaford', 'north hamtunscire', 'stæffordscīr',
+  'dēfnascīr', 'dorseteschyre', 'glēawceasterscīr',
+  'èirinn a tuath', 'daire',
 ]);
 
 function isNonUkPlace(place) {
@@ -252,6 +263,10 @@ const NON_LATIN_PLACE_MAP = {
   'Уэлс': 'Wales', 'Ирландия': 'Ireland',
   'Австралия': 'Australia', 'Канада': 'Canada',
   'Норвегия': 'Norway', 'Франция': 'France', 'Германия': 'Germany',
+  // Irish Gaelic
+  'Èirinn a Tuath': 'Northern Ireland',
+  // Swedish (FS also uses Swedish locale)
+  'Svedän': 'Sweden', 'Sverige': 'Sweden',
 };
 
 function sanitizePlaceName(place) {
@@ -302,6 +317,19 @@ function sanitizePlaceName(place) {
     'huntandunscir': 'Huntingdonshire',
     'norþhymbra land': 'Northumberland',
     'westmoringaland': 'Westmorland',
+    // Additional Old English forms found in FS search results
+    'bearrucscīr': 'Berkshire',
+    'bearrucscir': 'Berkshire',
+    'stæffordscīr': 'Staffordshire',
+    'staeffordscir': 'Staffordshire',
+    'roteland': 'Rutland',
+    'north hamtunscire': 'Northamptonshire',
+    'north hamtūnscīr': 'Northamptonshire',
+    'daire': 'Londonderry',
+    'heorotfordscír': 'Hertfordshire',
+    'heorotfordscir': 'Hertfordshire',
+    'dorseteschyre': 'Dorset',
+    'ratae coritanorum': 'Leicestershire',
   };
   // Replace Old English county names (case insensitive)
   const parts = cleaned.split(',').map(p => p.trim());
@@ -348,6 +376,27 @@ function formatDateForApi(dateStr) {
 // Alias for clarity — both produce year-only for the beta API
 function formatYearOnly(dateStr) {
   return formatDateForApi(dateStr);
+}
+
+// ─── Common UK Surnames (require stricter matching) ──────────────────
+// Top 100 UK surnames — direct search with these needs more evidence
+const COMMON_UK_SURNAMES = new Set([
+  'smith', 'jones', 'taylor', 'brown', 'williams', 'wilson', 'johnson', 'davies',
+  'robinson', 'wright', 'thompson', 'evans', 'walker', 'white', 'roberts', 'green',
+  'hall', 'wood', 'jackson', 'clarke', 'harris', 'clark', 'turner', 'hill', 'scott',
+  'cooper', 'morris', 'ward', 'moore', 'king', 'watson', 'baker', 'allen', 'martin',
+  'james', 'lee', 'young', 'lewis', 'cook', 'thomas', 'morgan', 'bell', 'bennett',
+  'edwards', 'harrison', 'hughes', 'hunt', 'carter', 'campbell', 'mitchell', 'shaw',
+  'parker', 'phillips', 'collins', 'price', 'kelly', 'mason', 'cox', 'richardson',
+  'fox', 'gray', 'rose', 'chapman', 'hunt', 'marshall', 'simpson', 'anderson',
+  'adams', 'reid', 'campbell', 'stewart', 'murphy', 'kennedy', 'watts', 'holmes',
+  'palmer', 'mills', 'barnes', 'owen', 'powell', 'webb', 'butler', 'fisher',
+  'russell', 'ford', 'stone', 'cole', 'west', 'knight', 'griffin', 'murray',
+  'barker', 'harvey', 'berry', 'grant', 'perkins', 'poole', 'dixon', 'warren',
+]);
+
+function isCommonSurname(surname) {
+  return COMMON_UK_SURNAMES.has((surname || '').toLowerCase());
 }
 
 // ─── Given Name Variants (UK/English) ────────────────────────────────
@@ -706,26 +755,133 @@ function parseNotesForAnchors(notes) {
     anchors[7] = { ...parseNameParts(mgmMatch[1].trim()), birthDate: mgmMatch[2] || '', deathDate: cleanDeathDate(mgmMatch[3]) };
   }
 
-  // ─── Fallback: Extract dates near ancestor mentions ───
-  const datePattern = /born\s+(?:(?:on|in)\s+)?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}|[A-Z][a-z]+\s+\d{4})/gi;
-  let dateMatch;
-  while ((dateMatch = datePattern.exec(notes)) !== null) {
-    const context = notes.substring(Math.max(0, dateMatch.index - 50), dateMatch.index);
-    for (const [asc, anchor] of Object.entries(anchors)) {
-      if (anchor.surname && !anchor.birthDate && context.toLowerCase().includes(anchor.surname.toLowerCase())) {
-        anchors[asc].birthDate = dateMatch[1];
+  // ─── Great-Grandparents (asc#8-15) ───
+  // Format: "Great-grandfather (paternal paternal): Frederick Hunt"
+  // or "Great-grandmother (maternal maternal): Gertrude May Griffin"
+  // Mapping: paternal paternal = asc 8/9, paternal maternal = 10/11,
+  //          maternal paternal = 12/13, maternal maternal = 14/15
+  const ggpLineageMap = {
+    'paternal paternal': { father: 8, mother: 9 },
+    'paternal maternal': { father: 10, mother: 11 },
+    'maternal paternal': { father: 12, mother: 13 },
+    'maternal maternal': { father: 14, mother: 15 },
+  };
+
+  // Match patterns like:
+  //   Great-grandfather (paternal paternal): Name (birth-death)
+  //   Great-grandmother (maternal maternal): Name
+  //   Great grandfather (paternal maternal): Name (birth-death)
+  const ggpPattern = /great[- ]?grand(father|mother)\s*\(([^)]+)\)\s*[:\-–]\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:\s*$|\s*\n|,|\.|;)/gim;
+  let ggpMatch;
+  while ((ggpMatch = ggpPattern.exec(notes)) !== null) {
+    const role = ggpMatch[1].toLowerCase(); // 'father' or 'mother'
+    const lineage = ggpMatch[2].trim().toLowerCase(); // e.g. 'paternal paternal'
+    const name = ggpMatch[3].trim();
+    const birthYear = ggpMatch[4] || '';
+    const deathYear = cleanDeathDate(ggpMatch[5]);
+
+    const mapping = ggpLineageMap[lineage];
+    if (mapping) {
+      const ascNum = role === 'father' ? mapping.father : mapping.mother;
+      anchors[ascNum] = {
+        ...parseNameParts(name),
+        birthDate: birthYear,
+        deathDate: deathYear,
+      };
+    }
+  }
+
+  // Match prefix-lineage format:
+  //   "Paternal paternal great-grandfather: Frederick Hunt"
+  //   "Maternal maternal great-grandmother: Gertrude May Griffin"
+  //   "Paternal maternal great-grandmother: Jessie Priscilla Mayne"
+  const ggpPrefixPattern = /(paternal|maternal)\s+(paternal|maternal)\s+great[- ]?grand(father|mother)\s*[:\-–]\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:\s*$|\s*\n|,|\.|;)/gim;
+  let ggpPrefixMatch;
+  while ((ggpPrefixMatch = ggpPrefixPattern.exec(notes)) !== null) {
+    const lineage = `${ggpPrefixMatch[1].toLowerCase()} ${ggpPrefixMatch[2].toLowerCase()}`;
+    const role = ggpPrefixMatch[3].toLowerCase(); // 'father' or 'mother'
+    const name = ggpPrefixMatch[4].trim();
+    const birthYear = ggpPrefixMatch[5] || '';
+    const deathYear = cleanDeathDate(ggpPrefixMatch[6]);
+
+    const mapping = ggpLineageMap[lineage];
+    if (mapping) {
+      const ascNum = role === 'father' ? mapping.father : mapping.mother;
+      if (!anchors[ascNum]) { // Don't overwrite if already set by parenthesized format
+        anchors[ascNum] = {
+          ...parseNameParts(name),
+          birthDate: birthYear,
+          deathDate: deathYear,
+        };
       }
     }
   }
 
-  // Extract places: "from Placename" or "in Placename"
-  const placePattern = /(?:from|in|of)\s+([A-Z][a-zA-Z\s,]+?)(?:\.|;|born|$)/gi;
-  let placeMatch;
-  while ((placeMatch = placePattern.exec(notes)) !== null) {
-    const context = notes.substring(Math.max(0, placeMatch.index - 50), placeMatch.index);
+  // Also match simpler "Great-grandparents:" list format without explicit lineage qualifier
+  // e.g. "GGP8: Frederick Hunt (1900-1970)" or "asc#8: Frederick Hunt"
+  const ggpAscPattern = /(?:GGP|asc\s*#?)(\d{1,2})\s*[:\-–]\s*([A-Z][a-zA-Z\s]+?)(?:\s*\((\d{4})\s*[-–]\s*(\d{4}|present|living)?\))?(?:\s*$|\s*\n|,|\.|;)/gim;
+  let ggpAscMatch;
+  while ((ggpAscMatch = ggpAscPattern.exec(notes)) !== null) {
+    const ascNum = parseInt(ggpAscMatch[1], 10);
+    if (ascNum >= 8 && ascNum <= 15) {
+      const name = ggpAscMatch[2].trim();
+      anchors[ascNum] = {
+        ...parseNameParts(name),
+        birthDate: ggpAscMatch[3] || '',
+        deathDate: cleanDeathDate(ggpAscMatch[4]),
+      };
+    }
+  }
+
+  // ─── Enhanced Date/Place Extraction: Parse data on same line as name ───
+  // This is the PRIMARY extraction method. Handles:
+  //   "Norman Hunt, b. 01.01.1931, Derby Derbyshire, d. 20.02.1991"
+  //   "Frederick Hunt, born 1900, died 1970"
+  // Must run FIRST so we get accurate per-line data before fallback
+  for (const [asc, anchor] of Object.entries(anchors)) {
+    if (!anchor.givenName) continue;
+    // Build a regex for this ancestor's full name (given + surname)
+    const nameParts = [anchor.givenName];
+    if (anchor.surname) nameParts.push(anchor.surname);
+    const escapedName = nameParts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+    const nameRegex = new RegExp(escapedName + '(.*)$', 'im');
+    const lineMatch = notes.match(nameRegex);
+    if (!lineMatch) continue;
+    const restOfLine = lineMatch[1] || '';
+
+    // Extract birth date: "b. 01.01.1931" or "b 1931" or "born 1931" or ", b. Dec 1938"
+    if (!anchor.birthDate) {
+      const bMatch = restOfLine.match(/(?:,\s*)?(?:born|b\.?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}|(?:\d{1,2}\s+)?[A-Z][a-z]+\s+\d{4})/i);
+      if (bMatch) anchors[asc].birthDate = bMatch[1];
+    }
+
+    // Extract death date: "d. 20.02.1991" or "d 1991" or "died 1991"
+    if (!anchor.deathDate) {
+      const dMatch = restOfLine.match(/(?:,\s*)?(?:died|d\.?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}|(?:\d{1,2}\s+)?[A-Z][a-z]+\s+\d{4})/i);
+      if (dMatch) anchors[asc].deathDate = dMatch[1];
+    }
+
+    // Extract birth place — text between birth date and death/end-of-line
+    if (!anchor.birthPlace) {
+      const pMatch = restOfLine.match(/(?:born|b\.?)\s+[\d./-]+\s*,\s*([A-Z][a-zA-Z\s,]+?)(?:\s*,\s*(?:d\.|died)|$)/i);
+      if (pMatch) anchors[asc].birthPlace = pMatch[1].trim();
+    }
+  }
+
+  // ─── Surname-based fallback for remaining empty dates ───
+  // Only fills in dates when the FULL name (given + surname) is found in context, not just surname
+  // This prevents "Hunt" in Alan's line from being applied to Norman's record
+  const datePattern = /(?:born|b\.?)\s+(?:(?:on|in)\s+)?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}|(?:\d{1,2}\s+)?[A-Z][a-z]+\s+\d{4})/gi;
+  let dateMatch;
+  while ((dateMatch = datePattern.exec(notes)) !== null) {
+    const context = notes.substring(Math.max(0, dateMatch.index - 100), dateMatch.index);
     for (const [asc, anchor] of Object.entries(anchors)) {
-      if (anchor.surname && context.toLowerCase().includes(anchor.surname.toLowerCase())) {
-        anchors[asc].birthPlace = placeMatch[1].trim();
+      // Require FULL name match (given + surname), not just surname, to prevent cross-contamination
+      if (anchor.givenName && anchor.surname && !anchor.birthDate) {
+        const fullName = `${anchor.givenName} ${anchor.surname}`.toLowerCase();
+        if (context.toLowerCase().includes(fullName)) {
+          anchors[asc].birthDate = dateMatch[1];
+        }
       }
     }
   }
@@ -821,6 +977,63 @@ class ResearchEngine {
     const parts = place.split(',').map(p => p.trim()).filter(Boolean);
     // First part is usually the most specific (town/district)
     return parts[0] || '';
+  }
+
+  // ─── Adaptive Birth Year Estimation ─────────────────────────────────
+  // Instead of fixed childBirth-28, use known parent-child gaps from the same family
+  // to estimate birth years more accurately.
+  estimateParentBirthYear(childAsc, childBirthYear, isFather) {
+    if (!childBirthYear) return null;
+
+    // Strategy 1: Check if we know the actual birth year of this parent from knownAnchors
+    const parentAsc = isFather ? childAsc * 2 : childAsc * 2 + 1;
+    const knownParent = this.knownAnchors[parentAsc];
+    if (knownParent?.birthDate) {
+      const knownYear = normalizeDate(knownParent.birthDate)?.year;
+      if (knownYear) return knownYear;
+    }
+
+    // Strategy 2: Use known gaps from same-generation ancestors in this family
+    // Look at siblings (other children in same generation) who have known parent birth years
+    const childGen = Math.floor(Math.log2(childAsc));
+    const genStart = Math.pow(2, childGen);
+    const genEnd = Math.pow(2, childGen + 1) - 1;
+    const gaps = [];
+
+    for (let sibAsc = genStart; sibAsc <= genEnd; sibAsc++) {
+      const sibRec = this.db.getAncestorByAscNumber(this.jobId, sibAsc);
+      if (!sibRec || !sibRec.birth_date) continue;
+      const sibYear = normalizeDate(sibRec.birth_date)?.year;
+      if (!sibYear) continue;
+
+      // Check both parents (father = sibAsc*2, mother = sibAsc*2+1)
+      for (const pAsc of [sibAsc * 2, sibAsc * 2 + 1]) {
+        const pRec = this.db.getAncestorByAscNumber(this.jobId, pAsc);
+        if (pRec && pRec.birth_date) {
+          const pYear = normalizeDate(pRec.birth_date)?.year;
+          if (pYear && sibYear > pYear) {
+            gaps.push(sibYear - pYear);
+          }
+        }
+        // Also check knownAnchors
+        const pAnchor = this.knownAnchors[pAsc];
+        if (pAnchor?.birthDate) {
+          const pYear = normalizeDate(pAnchor.birthDate)?.year;
+          if (pYear && sibYear > pYear) {
+            gaps.push(sibYear - pYear);
+          }
+        }
+      }
+    }
+
+    // If we found known gaps, use the average
+    if (gaps.length > 0) {
+      const avgGap = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
+      return childBirthYear - avgGap;
+    }
+
+    // Strategy 3: Fallback to default (28 for fathers, 26 for mothers)
+    return childBirthYear - (isFather ? 28 : 26);
   }
 
   // ─── Section 3: Family Context Scoring ──────────────────────────────
@@ -967,13 +1180,23 @@ class ResearchEngine {
       childLocationStr = child.allPlaces; // from extended scoring data
     }
 
-    // Parse places
+    // Parse places — use both parsePlaceParts and resolveCounty for best coverage
     const ancestorPlace = parsePlaceParts((ancestorLocationStr || '').toLowerCase());
     const childPlace = parsePlaceParts((childLocationStr || '').toLowerCase());
+    // Fallback: use resolveCounty (which knows town→county mappings) if parsePlaceParts missed the county
+    if (!ancestorPlace.county && ancestorLocationStr) {
+      const resolved = resolveCounty(ancestorLocationStr);
+      if (resolved) ancestorPlace.county = resolved;
+    }
+    if (!childPlace.county && childLocationStr) {
+      const resolved = resolveCounty(childLocationStr);
+      if (resolved) childPlace.county = resolved;
+    }
 
-    // County match
+    // County match — now uses full proximity check (same, adjacent, distant)
     if (ancestorPlace.county && childPlace.county) {
-      if (ancestorPlace.county === childPlace.county) {
+      const prox = countyProximity(ancestorPlace.county, childPlace.county);
+      if (prox === 'same') {
         points += 5;
         notes.push(`Location: birth county ${ancestorPlace.county} matches child's county (+5)`);
 
@@ -982,8 +1205,13 @@ class ResearchEngine {
           points += 3;
           notes.push(`Location: birth town ${ancestorPlace.town} matches child's town (+3)`);
         }
+      } else if (prox === 'adjacent') {
+        points += 2;
+        notes.push(`Location: adjacent county ${ancestorPlace.county} ↔ ${childPlace.county} (+2)`);
       } else {
-        notes.push(`Location: birth county ${ancestorPlace.county} vs child's ${childPlace.county} (no match)`);
+        // Distant county — significant penalty
+        points -= 15;
+        notes.push(`Location: DISTANT county ${ancestorPlace.county} vs ${childPlace.county} — unlikely relative (-15)`);
       }
     } else if (!ancestorPlace.county && !childPlace.county) {
       notes.push('Location: no birth counties to compare');
@@ -1102,17 +1330,46 @@ class ResearchEngine {
    * Uses existing fs_person_id if already linked (Phase 1), otherwise
    * does a strict tree search with UK filtering.
    */
+  /**
+   * Find a child ancestor in the FS tree via search.
+   * Returns { fsId, parentData } where parentData contains parent names from search results.
+   * parentData is used as fallback when getParents() fails (unauthenticated token).
+   */
   async findChildInTree(childRec) {
     // Already linked from Phase 1?
     if (childRec.fs_person_id) {
-      return childRec.fs_person_id;
+      // Still try a search to get parent data from GEDCOM X response
+      // (useful as fallback when getParents() fails due to auth)
+      let parentData = null;
+      if (this.fsSource) {
+        try {
+          const np = parseNameParts(childRec.name || '');
+          if (np.givenName && np.surname) {
+            const birthYear = normalizeDate(childRec.birth_date)?.year;
+            const query = { givenName: np.givenName, surname: np.surname, count: 3 };
+            if (birthYear) query.birthDate = String(birthYear);
+            if (childRec.birth_place) query.birthPlace = childRec.birth_place;
+            const results = await this.fsSource.searchPerson(query);
+            // Find the matching result by FS person ID
+            const match = results.find(r => r.id === childRec.fs_person_id);
+            if (match && match.parentData && (match.parentData.father || match.parentData.mother)) {
+              parentData = match.parentData;
+              console.log(`[Engine] findChildInTree: Got parent data from search for linked ${childRec.name} (${childRec.fs_person_id}): father=${match.parentData.father?.name || 'none'}, mother=${match.parentData.mother?.name || 'none'}`);
+            }
+          }
+        } catch (err) {
+          // Search failed — that's OK, we still have the fsId
+          console.log(`[Engine] findChildInTree: search for parent data failed for ${childRec.name}: ${err.message}`);
+        }
+      }
+      return { fsId: childRec.fs_person_id, parentData };
     }
 
     // Otherwise search the tree
-    if (!this.fsSource) return null;
+    if (!this.fsSource) return { fsId: null, parentData: null };
 
     const np = parseNameParts(childRec.name || '');
-    if (!np.givenName || !np.surname) return null;
+    if (!np.givenName || !np.surname) return { fsId: null, parentData: null };
 
     const birthYear = normalizeDate(childRec.birth_date)?.year;
     const birthPlace = childRec.birth_place || '';
@@ -1149,12 +1406,21 @@ class ResearchEngine {
         // Reject undated candidates for post-1837 people
         if (birthYear && birthYear >= 1837 && !candYear) continue;
 
-        return cand.id;
+        // Geographic proximity — reject distant candidates when we know the child's location
+        if (birthPlace && candPlace) {
+          const prox = placeProximity(candPlace, birthPlace);
+          if (prox.proximity === 'distant') {
+            console.log(`[Engine] findChildInTree: ${cand.name} (${cand.id}) — distant (${prox.county1} vs ${prox.county2}), skipping`);
+            continue;
+          }
+        }
+
+        return { fsId: cand.id, parentData: cand.parentData || null };
       }
     } catch (err) {
       console.log(`[Engine] findChildInTree error for ${childRec.name}: ${err.message}`);
     }
-    return null;
+    return { fsId: null, parentData: null };
   }
 
   /**
@@ -1163,7 +1429,7 @@ class ResearchEngine {
    * primaryCount > 0 means "source-verified".
    */
   async verifyParentSources(parentFsId) {
-    if (!this.fsSource) return { sources: [], primaryCount: 0, totalPoints: 0, classifications: [] };
+    if (!this.fsSource) return { sources: [], primaryCount: 0, totalPoints: 0, classifications: [], authFailed: false };
 
     try {
       const sources = await this.fsSource.getPersonSources(parentFsId);
@@ -1192,10 +1458,15 @@ class ResearchEngine {
         }
       }
 
-      return { sources, primaryCount, totalPoints, classifications };
+      return { sources, primaryCount, totalPoints, classifications, authFailed: false };
     } catch (err) {
-      console.log(`[Engine] verifyParentSources error for ${parentFsId}: ${err.message}`);
-      return { sources: [], primaryCount: 0, totalPoints: 0, classifications: [] };
+      const isAuthError = err.message.includes('authenticated token') || err.message.includes('401');
+      if (isAuthError) {
+        console.log(`[Engine] verifyParentSources: auth required for ${parentFsId} — sources unavailable`);
+      } else {
+        console.log(`[Engine] verifyParentSources error for ${parentFsId}: ${err.message}`);
+      }
+      return { sources: [], primaryCount: 0, totalPoints: 0, classifications: [], authFailed: isAuthError };
     }
   }
 
@@ -1246,7 +1517,31 @@ class ResearchEngine {
       reasons.push(`Location: ${parentPlace}`);
     }
 
-    return { valid, reasons };
+    // ── GEOGRAPHIC PROXIMITY CHECK ──
+    // Parents should be in the same or adjacent county as the child.
+    // This is the user's "playbook": if a child is born in Derby, parents were
+    // likely married in Derby and born in the same region.
+    // People DID move, but it was rare — distant parents need much stronger evidence.
+    const childPlace = sanitizePlaceName(childRec.birth_place || childRec.death_place || '');
+    let locationProximity = null;
+    if (parentPlace && childPlace) {
+      const prox = placeProximity(parentPlace, childPlace);
+      locationProximity = prox.proximity;
+      if (prox.proximity === 'same') {
+        reasons.push(`Geographic: same county (${prox.county1}) ✓`);
+      } else if (prox.proximity === 'adjacent') {
+        reasons.push(`Geographic: adjacent counties (${prox.county1} ↔ ${prox.county2}) ✓`);
+      } else if (prox.proximity === 'distant') {
+        reasons.push(`Geographic: DISTANT (${prox.county1 || 'unknown'} vs ${prox.county2 || 'unknown'}) — needs strong evidence`);
+        // Don't hard-reject here — people did move. But flag it so callers can
+        // require extra evidence (more sources) for distant parents.
+      } else {
+        // Could not resolve counties — allow but note
+        reasons.push(`Geographic: could not resolve counties (${parentPlace} / ${childPlace})`);
+      }
+    }
+
+    return { valid, reasons, locationProximity };
   }
 
   // ─── STEP 1: Build Candidate Birth Set ─────────────────────────────
@@ -2455,14 +2750,62 @@ class ResearchEngine {
       const fp = parseNameParts(this.inputData.father_name);
       this.knownAnchors[2] = { givenName: fp.givenName, surname: fp.surname };
     }
+    // Also check structured father input
+    if (this.inputData.father?.name) {
+      const fp = parseNameParts(this.inputData.father.name);
+      if (!this.knownAnchors[2]) {
+        this.knownAnchors[2] = { givenName: fp.givenName, surname: fp.surname };
+      }
+    }
 
     // Mother (asc#3)
     if (this.inputData.mother_name) {
       const mp = parseNameParts(this.inputData.mother_name);
       this.knownAnchors[3] = { givenName: mp.givenName, surname: mp.surname };
     }
+    if (this.inputData.mother?.name) {
+      const mp = parseNameParts(this.inputData.mother.name);
+      if (!this.knownAnchors[3]) {
+        this.knownAnchors[3] = { givenName: mp.givenName, surname: mp.surname };
+      }
+    }
 
-    // Parse notes for grandparent info
+    // Grandparents (#4-7) from structured input
+    const gpMappings = {
+      paternal_grandfather: 4, paternal_grandmother: 5,
+      maternal_grandfather: 6, maternal_grandmother: 7,
+    };
+    for (const [key, asc] of Object.entries(gpMappings)) {
+      if (this.inputData[key]?.name && !this.knownAnchors[asc]) {
+        const np = parseNameParts(this.inputData[key].name);
+        this.knownAnchors[asc] = {
+          givenName: np.givenName, surname: np.surname,
+          birthDate: this.inputData[key].birth_date || '',
+          deathDate: this.inputData[key].death_date || '',
+          birthPlace: this.inputData[key].birth_place || '',
+        };
+      }
+    }
+
+    // Great-grandparents (#8-15) from structured input
+    // Format: inputData.great_grandparents = { "8": { name, birth_date, ... }, "9": { ... }, ... }
+    if (this.inputData.great_grandparents) {
+      for (const [asc, info] of Object.entries(this.inputData.great_grandparents)) {
+        const ascNum = parseInt(asc, 10);
+        if (isNaN(ascNum) || ascNum < 8 || ascNum > 15) continue;
+        if (info.name && !this.knownAnchors[ascNum]) {
+          const np = parseNameParts(info.name);
+          this.knownAnchors[ascNum] = {
+            givenName: np.givenName, surname: np.surname,
+            birthDate: info.birth_date || '',
+            deathDate: info.death_date || '',
+            birthPlace: info.birth_place || '',
+          };
+        }
+      }
+    }
+
+    // Parse notes for grandparent and great-grandparent info
     if (this.inputData.notes) {
       const noteAnchors = parseNotesForAnchors(this.inputData.notes);
       for (const [asc, info] of Object.entries(noteAnchors)) {
@@ -2470,6 +2813,136 @@ class ResearchEngine {
           ...(this.knownAnchors[parseInt(asc, 10)] || {}),
           ...info,
         };
+      }
+    }
+
+    // Backfill knownAnchors from existing DB records (for re-runs or pre-populated data)
+    // This ensures that Customer Data records for asc#4-15+ are available as search anchors
+    const maxAsc = Math.pow(2, this.generations) - 1;
+    for (let asc = 4; asc <= Math.min(maxAsc, 63); asc++) {
+      if (this.knownAnchors[asc]) continue; // already have it from notes/input
+      const rec = this.db.getAncestorByAscNumber(this.jobId, asc);
+      if (rec && rec.name && rec.confidence_level === 'Customer Data') {
+        const np = parseNameParts(rec.name);
+        if (np.givenName) {
+          this.knownAnchors[asc] = {
+            givenName: np.givenName,
+            surname: np.surname || '',
+            birthDate: rec.birth_date || '',
+            deathDate: rec.death_date || '',
+            birthPlace: rec.birth_place || '',
+            deathPlace: rec.death_place || '',
+          };
+        }
+      }
+    }
+
+    console.log(`[Engine] Known anchors: ${Object.keys(this.knownAnchors).sort((a, b) => a - b).map(a => `asc#${a}`).join(', ')}`);
+  }
+
+  // ─── Ensure customer data ancestors exist in DB ─────────────────
+  // Safety net: if ancestors weren't pre-populated by the route handler,
+  // create them from inputData so the engine can function correctly.
+  ensureCustomerDataStored() {
+    const d = this.inputData;
+    const ensure = (asc, gen, name, gender, birthDate, birthPlace, deathDate, deathPlace) => {
+      if (!name) return;
+      const existing = this.db.getAncestorByAscNumber(this.jobId, asc);
+      if (existing) return;
+      console.log(`[Engine] Storing missing customer data: asc#${asc} ${name}`);
+      this.db.addAncestor({
+        research_job_id: this.jobId, fs_person_id: '', name, gender,
+        birth_date: birthDate || '', birth_place: birthPlace || '',
+        death_date: deathDate || '', death_place: deathPlace || '',
+        ascendancy_number: asc, generation: gen, confidence: 'customer_data',
+        sources: [], raw_data: {}, confidence_score: 100, confidence_level: 'Customer Data',
+        evidence_chain: [], search_log: [], conflicts: [],
+        verification_notes: 'Customer-provided data', accepted: 1,
+      });
+    };
+
+    // Subject (#1) — supports both flat and structured input
+    const subjectName = d.subject?.name || `${d.given_name || ''} ${d.surname || ''}`.trim();
+    const subjectBirthDate = d.subject?.birth_date || d.birth_date || '';
+    const subjectBirthPlace = d.subject?.birth_place || d.birth_place || '';
+    const subjectDeathDate = d.subject?.death_date || d.death_date || '';
+    const subjectDeathPlace = d.subject?.death_place || d.death_place || '';
+    const subjectGender = d.subject?.gender || 'Unknown';
+    ensure(1, 0, subjectName, subjectGender,
+      subjectBirthDate, subjectBirthPlace, subjectDeathDate, subjectDeathPlace);
+
+    // Father (#2) — supports both flat and structured input
+    const fatherName = d.father?.name || d.father_name || '';
+    if (fatherName) {
+      ensure(2, 1, fatherName, 'Male',
+        d.father?.birth_date || '', d.father?.birth_place || subjectBirthPlace,
+        d.father?.death_date || '', d.father?.death_place || '');
+    }
+
+    // Mother (#3)
+    const motherName = d.mother?.name || d.mother_name || '';
+    if (motherName) {
+      ensure(3, 1, motherName, 'Female',
+        d.mother?.birth_date || '', d.mother?.birth_place || subjectBirthPlace,
+        d.mother?.death_date || '', d.mother?.death_place || '');
+    }
+
+    // Grandparents (#4-7) from structured input
+    const gpKeys = {
+      paternal_grandfather: [4, 'Male'], paternal_grandmother: [5, 'Female'],
+      maternal_grandfather: [6, 'Male'], maternal_grandmother: [7, 'Female'],
+    };
+    for (const [key, [asc, gender]] of Object.entries(gpKeys)) {
+      if (d[key]?.name) {
+        ensure(asc, 2, d[key].name, gender,
+          d[key].birth_date || '', d[key].birth_place || subjectBirthPlace,
+          d[key].death_date || '', d[key].death_place || '');
+      }
+    }
+
+    // Great-grandparents (#8-15) from structured input
+    if (d.great_grandparents) {
+      for (const [asc, info] of Object.entries(d.great_grandparents)) {
+        const ascNum = parseInt(asc, 10);
+        if (isNaN(ascNum) || ascNum < 8 || ascNum > 15) continue;
+        if (info.name) {
+          const gender = ascNum % 2 === 0 ? 'Male' : 'Female';
+          const parentAsc = Math.floor(ascNum / 2);
+          const parentAnchor = this.knownAnchors[parentAsc];
+          const fallbackPlace = parentAnchor?.birthPlace || subjectBirthPlace;
+          ensure(ascNum, 3, info.name, gender,
+            info.birth_date || '', info.birth_place || fallbackPlace,
+            info.death_date || '', info.death_place || '');
+        }
+      }
+    }
+
+    // Grandparents (#4-7) from knownAnchors (parsed from notes)
+    for (const ascNum of [4, 5, 6, 7]) {
+      const anchor = this.knownAnchors[ascNum];
+      if (anchor && anchor.givenName) {
+        const fullName = `${anchor.givenName} ${anchor.surname || ''}`.trim();
+        const gender = ascNum % 2 === 0 ? 'Male' : 'Female';
+        ensure(ascNum, 2, fullName, gender,
+          anchor.birthDate || '', anchor.birthPlace || d.birth_place || '',
+          anchor.deathDate || '', anchor.deathPlace || '');
+      }
+    }
+
+    // Great-grandparents (#8-15) from knownAnchors (parsed from notes)
+    for (const ascNum of [8, 9, 10, 11, 12, 13, 14, 15]) {
+      const anchor = this.knownAnchors[ascNum];
+      if (anchor && anchor.givenName) {
+        const fullName = `${anchor.givenName} ${anchor.surname || ''}`.trim();
+        const gender = ascNum % 2 === 0 ? 'Male' : 'Female';
+        // Great-grandparents are generation 3
+        // Inherit birthPlace from their child grandparent if available
+        const parentAsc = Math.floor(ascNum / 2); // grandparent asc number
+        const parentAnchor = this.knownAnchors[parentAsc];
+        const fallbackPlace = parentAnchor?.birthPlace || d.birth_place || '';
+        ensure(ascNum, 3, fullName, gender,
+          anchor.birthDate || '', anchor.birthPlace || fallbackPlace,
+          anchor.deathDate || '', anchor.deathPlace || '');
       }
     }
   }
@@ -2831,10 +3304,14 @@ class ResearchEngine {
   async run() {
     try {
       this.db.updateResearchJob(this.jobId, { status: 'running' });
-      this.db.deleteSearchCandidates(this.jobId);
+      this.db.deleteSearchCandidates(this.jobId, true); // preserve rejection history
       this.buildAnchors();
 
-      const totalPossible = Math.pow(2, this.generations + 1) - 1;
+      // Safety net: ensure customer data ancestors exist in DB
+      // (normally created by the route handler, but may be missing if job was created directly)
+      this.ensureCustomerDataStored();
+
+      const totalPossible = Math.pow(2, this.generations) - 1;
       this.db.updateJobProgress(this.jobId, 'Starting research...', 0, totalPossible);
 
       console.log(`\n[Engine] ════════════════════════════════════════════════`);
@@ -2847,7 +3324,7 @@ class ResearchEngine {
       // Search FS for each customer ancestor (asc#1-7), starting with grandparents.
       // Grandparents (asc#4-7) are usually dead with full dates, so they're the best entry points.
 
-      const maxAsc = Math.pow(2, this.generations + 1) - 1;
+      const maxAsc = Math.pow(2, this.generations) - 1;
 
       this.db.updateJobProgress(this.jobId, 'Linking ancestors to FamilySearch...', 0, totalPossible);
 
@@ -2860,7 +3337,7 @@ class ResearchEngine {
         if (!np.givenName && !np.surname) return null;
 
         const query = { givenName: np.givenName || '', surname: np.surname || '', count: 5 };
-        if (rec.birth_date) query.birthDate = rec.birth_date;
+        if (rec.birth_date) query.birthDate = formatDateForApi(rec.birth_date);
         if (rec.birth_place) query.birthPlace = rec.birth_place;
 
         try {
@@ -2905,6 +3382,69 @@ class ResearchEngine {
               continue;
             }
 
+            // ── GENERATIONAL ERA CHECK ──
+            // When customer provides no birth date, estimate from subject's birth year and generation.
+            // Expected birth ≈ subject_birth - (generation * 28), tolerance ±35 years.
+            if (!recBirthYear && candYear && rec.generation >= 1) {
+              const subjectRec = this.db.getAncestorByAscNumber(this.jobId, 1);
+              const subjectYear = subjectRec ? normalizeDate(subjectRec.birth_date)?.year : null;
+              if (subjectYear) {
+                const expectedYear = subjectYear - (rec.generation * 28);
+                if (Math.abs(candYear - expectedYear) > 35) {
+                  console.log(`[Engine]     → rejected: candidate b.${candYear}, expected ~${expectedYear} for gen ${rec.generation} (±35yr)`);
+                  continue;
+                }
+              }
+            }
+
+            // ── GEOGRAPHIC PROXIMITY CHECK ──
+            // Compare candidate location against ancestor's own birth_place,
+            // or fall back to the CHILD's birth_place (Ahnentafel: child = floor(asc/2))
+            let refPlace = rec.birth_place || '';
+            if (!refPlace && asc >= 2) {
+              const childAsc = Math.floor(asc / 2);
+              const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+              if (childRec) refPlace = childRec.birth_place || '';
+            }
+            if (refPlace && place) {
+              const prox = placeProximity(place, refPlace);
+              if (prox.proximity === 'distant') {
+                console.log(`[Engine]     → rejected: distant location (${prox.county1 || place} vs ref ${prox.county2 || refPlace})`);
+                continue;
+              }
+              // If we can resolve the reference but NOT the candidate, be cautious
+              // (candidate may be from an unrecognised place — don't blindly accept)
+              if (prox.proximity === null && prox.county2 && !prox.county1) {
+                console.log(`[Engine]     → rejected: candidate county unresolvable (${place}) but customer is ${prox.county2}`);
+                continue;
+              }
+              if (prox.proximity) {
+                console.log(`[Engine]     → location: ${prox.proximity} (${prox.county1} / ${prox.county2})`);
+              }
+            }
+
+            // ── COMMON SURNAME SOURCE CHECK ──
+            // For common surnames (Hunt, Smith, etc.), require at least 2 primary sources
+            // before linking Customer Data — prevents linking to wrong family entirely.
+            if (isCommonSurname(np.surname)) {
+              try {
+                const srcVerify = await this.verifyParentSources(cand.id);
+                if (srcVerify.authFailed) {
+                  // Can't verify sources — for common surnames, still try to link
+                  // but rely on the name + location + year matching
+                  console.log(`[Engine]     → common surname source check skipped (auth unavailable), proceeding with name/location match`);
+                } else if (srcVerify.primaryCount < 2) {
+                  console.log(`[Engine]     → rejected: common surname '${np.surname}' with only ${srcVerify.primaryCount} primary sources (need 2+)`);
+                  continue;
+                } else {
+                  console.log(`[Engine]     → common surname check passed: ${srcVerify.primaryCount} primary sources`);
+                }
+              } catch (e) {
+                console.log(`[Engine]     → source check error: ${e.message}, skipping link`);
+                continue;
+              }
+            }
+
             console.log(`[Engine]   ✓ asc#${asc} matched: ${cand.name} (${cand.id})`);
             this.db.updateAncestorByAscNumber(this.jobId, asc, {
               fs_person_id: cand.id,
@@ -2918,8 +3458,9 @@ class ResearchEngine {
         return null;
       };
 
-      // Search grandparents first (asc#4-7), then parents (asc#2-3), then subject (asc#1)
-      const searchOrder = [4, 5, 6, 7, 2, 3, 1];
+      // Search great-grandparents first (asc#8-15, most likely dead with full records),
+      // then grandparents (asc#4-7), then parents (asc#2-3), then subject (asc#1)
+      const searchOrder = [8, 9, 10, 11, 12, 13, 14, 15, 4, 5, 6, 7, 2, 3, 1];
       const linkedFsIds = new Map(); // asc → FS person ID
 
       if (this.fsSource) {
@@ -2940,12 +3481,16 @@ class ResearchEngine {
       console.log(`\n[Engine] ── Phase 2: Tree-Based Parent Discovery ──\n`);
 
       const storedAscNumbers = new Set();
+      // Track all FS person IDs already used in the tree to prevent the same
+      // person being assigned as parent of both husband AND wife (impossible).
+      const usedFsPersonIds = new Set();
 
-      // First, mark all existing customer data
+      // First, mark all existing customer data and collect their FS IDs
       for (let asc = 1; asc <= maxAsc; asc++) {
         const existing = this.db.getAncestorByAscNumber(this.jobId, asc);
         if (existing && existing.confidence_level === 'Customer Data') {
           storedAscNumbers.add(asc);
+          if (existing.fs_person_id) usedFsPersonIds.add(existing.fs_person_id);
         }
       }
 
@@ -2978,7 +3523,9 @@ class ResearchEngine {
 
           // Step 1: Find the child in the FS tree
           console.log(`[Engine] asc#${childAsc}: Finding ${childRec.name} in FS tree...`);
-          const childFsId = await this.findChildInTree(childRec);
+          const childResult = await this.findChildInTree(childRec);
+          const childFsId = childResult.fsId;
+          const searchParentData = childResult.parentData;
 
           if (!childFsId) {
             console.log(`[Engine] asc#${childAsc}: ${childRec.name} NOT found in FS tree — skipping parent slots ${fatherAsc},${motherAsc}`);
@@ -2987,20 +3534,31 @@ class ResearchEngine {
           }
           console.log(`[Engine] asc#${childAsc}: Found in tree as ${childFsId}`);
 
-          // Step 2: Get parents from tree
+          // Step 2: Get parents from tree (may fail if token is unauthenticated)
           let treeParents;
           try {
             treeParents = await this.fsSource.getParents(childFsId);
           } catch (err) {
             console.log(`[Engine] asc#${childAsc}: getParents error: ${err.message}`);
-            this.processedCount += 2;
-            continue;
+            // Fallback: use parent data extracted from search results
+            if (searchParentData && (searchParentData.father || searchParentData.mother)) {
+              console.log(`[Engine] asc#${childAsc}: Using parent names from search results as fallback`);
+              treeParents = { father: searchParentData.father, mother: searchParentData.mother };
+            } else {
+              this.processedCount += 2;
+              continue;
+            }
           }
 
           // Process father
           if (treeParents.father && !storedAscNumbers.has(fatherAsc) && fatherAsc <= maxAsc) {
             const father = treeParents.father;
             console.log(`[Engine] asc#${fatherAsc}: Tree father = ${father.name} (${father.id}) b.${father.birthDate} ${father.birthPlace}`);
+
+            // Duplicate FS person check — same person can't be two different ancestors
+            if (usedFsPersonIds.has(father.id)) {
+              console.log(`[Engine] asc#${fatherAsc}: REJECTED — FS person ${father.id} already used in tree (duplicate parent)`);
+            } else {
 
             // Step 3: Validate
             const validation = this.validateTreeParent(father, childRec, 'Male');
@@ -3013,7 +3571,14 @@ class ResearchEngine {
               const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
               console.log(`[Engine] asc#${fatherAsc}: Sources: ${srcVerify.sources.length} total, ${srcVerify.primaryCount} primary → ${discoveryMethod}`);
 
+              // Distant parents need much stronger evidence (4+ primary sources)
+              // People did move but it was rare — require strong proof
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < 4) {
+                console.log(`[Engine] asc#${fatherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
+              } else {
+
               storedAscNumbers.add(fatherAsc);
+              usedFsPersonIds.add(father.id);
               this.storeOrUpdateAncestor(fatherAsc, gen, {
                 fs_person_id: father.id,
                 name: father.name || 'Unknown',
@@ -3045,9 +3610,11 @@ class ResearchEngine {
                 conflicts: [],
                 verification_notes: `Tree parent of ${childRec.name} (${discoveryMethod}). ${srcVerify.primaryCount} primary sources: ${srcSummary || 'none'}`,
               });
+              } // end else (distant location check)
             } else {
               console.log(`[Engine] asc#${fatherAsc}: REJECTED — validation failed`);
             }
+            } // end else (duplicate FS person check)
           } else if (!treeParents.father && !storedAscNumbers.has(fatherAsc)) {
             console.log(`[Engine] asc#${fatherAsc}: No father in FS tree for ${childRec.name}`);
           }
@@ -3056,6 +3623,11 @@ class ResearchEngine {
           if (treeParents.mother && !storedAscNumbers.has(motherAsc) && motherAsc <= maxAsc) {
             const mother = treeParents.mother;
             console.log(`[Engine] asc#${motherAsc}: Tree mother = ${mother.name} (${mother.id}) b.${mother.birthDate} ${mother.birthPlace}`);
+
+            // Duplicate FS person check — same person can't be two different ancestors
+            if (usedFsPersonIds.has(mother.id)) {
+              console.log(`[Engine] asc#${motherAsc}: REJECTED — FS person ${mother.id} already used in tree (duplicate parent)`);
+            } else {
 
             // Step 3: Validate
             const validation = this.validateTreeParent(mother, childRec, 'Female');
@@ -3068,7 +3640,13 @@ class ResearchEngine {
               const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
               console.log(`[Engine] asc#${motherAsc}: Sources: ${srcVerify.sources.length} total, ${srcVerify.primaryCount} primary → ${discoveryMethod}`);
 
+              // Distant parents need much stronger evidence (4+ primary sources)
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < 4) {
+                console.log(`[Engine] asc#${motherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
+              } else {
+
               storedAscNumbers.add(motherAsc);
+              usedFsPersonIds.add(mother.id);
               this.storeOrUpdateAncestor(motherAsc, gen, {
                 fs_person_id: mother.id,
                 name: mother.name || 'Unknown',
@@ -3100,9 +3678,11 @@ class ResearchEngine {
                 conflicts: [],
                 verification_notes: `Tree parent of ${childRec.name} (${discoveryMethod}). ${srcVerify.primaryCount} primary sources: ${srcSummary || 'none'}`,
               });
+              } // end else (distant location check)
             } else {
               console.log(`[Engine] asc#${motherAsc}: REJECTED — validation failed`);
             }
+            } // end else (duplicate FS person check)
           } else if (!treeParents.mother && !storedAscNumbers.has(motherAsc)) {
             console.log(`[Engine] asc#${motherAsc}: No mother in FS tree for ${childRec.name}`);
           }
@@ -3142,11 +3722,17 @@ class ResearchEngine {
               ? fatherSurname.split('-').map(s => s.trim()).filter(Boolean)
               : [fatherSurname];
 
+            // Check if we have a known given name for this parent (from knownAnchors / customer data)
+            const knownFather = this.knownAnchors[fatherAsc];
+            const knownGivenName = knownFather?.givenName || '';
+
             for (const tryName of surnamesToTry) {
               if (!tryName) continue;
-              const estBirthYear = childBirthYear ? childBirthYear - 28 : null;
+              const estBirthYear = this.estimateParentBirthYear(childAsc, childBirthYear, true);
               const query = { surname: tryName, count: 15 };
               if (estBirthYear) query.birthDate = String(estBirthYear);
+              // If we know the given name, include it in the search for much better matches
+              if (knownGivenName) query.givenName = knownGivenName;
               // Use child's birth place, or fallback to 'England' to filter out non-UK results
               if (childBirthPlace) {
                 query.birthPlace = childBirthPlace;
@@ -3154,7 +3740,7 @@ class ResearchEngine {
                 query.birthPlace = 'England';
               }
 
-              console.log(`[Engine] asc#${fatherAsc}: Direct search for father — ${tryName}, ~b.${estBirthYear || '?'}, ${query.birthPlace}`);
+              console.log(`[Engine] asc#${fatherAsc}: Direct search for father — ${knownGivenName ? knownGivenName + ' ' : ''}${tryName}, ~b.${estBirthYear || '?'}, ${query.birthPlace}`);
 
               try {
                 const candidates = await this.fsSource.searchPerson(query);
@@ -3169,6 +3755,11 @@ class ResearchEngine {
                     }
                   }
                   if (this.rejectedFsIds.has(cand.id)) continue;
+                  // Duplicate FS person check — same person can't appear twice in the tree
+                  if (usedFsPersonIds.has(cand.id)) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — SKIP: already used in tree`);
+                    continue;
+                  }
 
                   // Gender check
                   const candGender = (cand.gender || '').toLowerCase();
@@ -3191,10 +3782,50 @@ class ResearchEngine {
                   // Must have a birth date for post-1837 people
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
-                  // *** KEY: Only accept if source-verified (2+ primary sources for Strategy 2) ***
+                  // *** KEY: Only accept if source-verified (or auth-unavailable with strong match) ***
+                  // Common surnames need MORE evidence (3+ sources) to avoid false matches
+                  // Distant candidates need MUCH more evidence (4+ sources) — people rarely moved far
+                  let minSources = isCommonSurname(tryName) && !knownGivenName ? 3 : 2;
+                  const candPlaceFull = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
+                  const candProximity = childBirthPlace ? placeProximity(candPlaceFull, childBirthPlace) : { proximity: null };
+                  if (candProximity.proximity === 'distant') {
+                    minSources = Math.max(minSources, 4); // Distant parents need 4+ primary sources
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — DISTANT (${candProximity.county1} vs ${candProximity.county2}), need ${minSources}+ sources`);
+                  }
                   const srcVerify = await this.verifyParentSources(cand.id);
-                  if (srcVerify.primaryCount < 2) {
-                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need 2+)`);
+                  if (srcVerify.authFailed) {
+                    // Can't verify sources due to auth — be VERY strict:
+                    // REQUIRE known given name AND verify it matches the candidate
+                    if (!knownGivenName) {
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known given name, SKIP (too risky without verification)`);
+                      continue;
+                    }
+                    // Verify the candidate's given name actually matches the known name
+                    const candParts2 = parseNameParts(cand.name || '');
+                    if (!this.namesSimilar(candParts2.givenName, knownGivenName)) {
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candParts2.givenName}' doesn't match known '${knownGivenName}', SKIP`);
+                      continue;
+                    }
+                    // Reject distant candidates when we can't verify
+                    if (candProximity.proximity === 'distant') {
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
+                      continue;
+                    }
+                    // Try FreeBMD cross-verification as secondary check
+                    const candBirthYear = normalizeDate(cand.birthDate)?.year;
+                    if (candBirthYear && candBirthYear >= 1837 && candBirthYear <= 1983) {
+                      const freebmdCheck = await this.confirmWithFreeBMD(
+                        cand.name, candBirthYear, cand.birthPlace || childBirthPlace, null, fatherAsc
+                      );
+                      if (freebmdCheck.bonusScore > 0) {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
+                      } else {
+                        console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, FreeBMD didn't confirm, accepting with caution (known name match)`);
+                      }
+                    }
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${knownGivenName}' matches`);
+                  } else if (srcVerify.primaryCount < minSources) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need ${minSources}+)`);
                     continue;
                   }
 
@@ -3208,11 +3839,12 @@ class ResearchEngine {
                     continue;
                   }
 
-                  const discoveryMethod = 'direct_search_verified';
+                  const discoveryMethod = srcVerify.authFailed ? 'direct_search_unverified' : 'direct_search_verified';
                   const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
-                  console.log(`[Engine] asc#${fatherAsc}: FOUND via direct search: ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources`);
+                  console.log(`[Engine] asc#${fatherAsc}: FOUND via direct search: ${cand.name} (${cand.id}) — ${srcVerify.authFailed ? 'auth unavailable' : srcVerify.primaryCount + ' primary sources'}`);
 
                   storedAscNumbers.add(fatherAsc);
+                  usedFsPersonIds.add(cand.id);
                   this.storeOrUpdateAncestor(fatherAsc, gen, {
                     fs_person_id: cand.id,
                     name: cand.name || 'Unknown',
@@ -3254,12 +3886,17 @@ class ResearchEngine {
             let motherSurname = '';
             let motherGiven = '';
 
+            // Check knownAnchors first (from customer-provided notes)
+            const knownMother = this.knownAnchors[motherAsc];
+            if (knownMother?.givenName) motherGiven = knownMother.givenName;
+            if (knownMother?.surname) motherSurname = knownMother.surname;
+
             // Try to get mother name from Phase 1 FS search (fsPerson.motherName in raw_data)
             const childRawData = childRec.raw_data || {};
-            if (childRawData.fsPerson?.motherName) {
+            if (!motherSurname && childRawData.fsPerson?.motherName) {
               const mp = parseNameParts(childRawData.fsPerson.motherName);
               motherSurname = mp.surname || '';
-              motherGiven = mp.givenName || '';
+              if (!motherGiven) motherGiven = mp.givenName || '';
             }
 
             // Also try: if the child was linked to FS, search results may have included parent names
@@ -3282,7 +3919,7 @@ class ResearchEngine {
             }
 
             if (motherSurname) {
-              const estBirthYear = childBirthYear ? childBirthYear - 26 : null;
+              const estBirthYear = this.estimateParentBirthYear(childAsc, childBirthYear, false);
               const query = { surname: motherSurname, count: 15 };
               if (motherGiven) query.givenName = motherGiven;
               if (estBirthYear) query.birthDate = String(estBirthYear);
@@ -3307,6 +3944,11 @@ class ResearchEngine {
                     }
                   }
                   if (this.rejectedFsIds.has(cand.id)) continue;
+                  // Duplicate FS person check
+                  if (usedFsPersonIds.has(cand.id)) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — SKIP: already used in tree`);
+                    continue;
+                  }
 
                   const candGender = (cand.gender || '').toLowerCase();
                   if (candGender && candGender !== 'female') continue;
@@ -3318,10 +3960,46 @@ class ResearchEngine {
                   }
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
-                  // Source verification required (2+ primary sources for Strategy 2)
+                  // Source verification required — common surnames need more evidence
+                  // Distant candidates need MUCH more evidence (4+ sources)
+                  let motherMinSources = isCommonSurname(motherSurname) && !motherGiven ? 3 : 2;
+                  const motherCandPlace = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
+                  const motherCandProx = childBirthPlace ? placeProximity(motherCandPlace, childBirthPlace) : { proximity: null };
+                  if (motherCandProx.proximity === 'distant') {
+                    motherMinSources = Math.max(motherMinSources, 4);
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — DISTANT (${motherCandProx.county1} vs ${motherCandProx.county2}), need ${motherMinSources}+ sources`);
+                  }
                   const srcVerify = await this.verifyParentSources(cand.id);
-                  if (srcVerify.primaryCount < 2) {
-                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need 2+)`);
+                  if (srcVerify.authFailed) {
+                    // Can't verify sources due to auth — be VERY strict:
+                    // REQUIRE known given name AND verify it matches the candidate
+                    if (!motherGiven) {
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, no known given name, SKIP (too risky without verification)`);
+                      continue;
+                    }
+                    // Verify the candidate's given name actually matches
+                    const candMotherParts = parseNameParts(cand.name || '');
+                    if (!this.namesSimilar(candMotherParts.givenName, motherGiven)) {
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candMotherParts.givenName}' doesn't match known '${motherGiven}', SKIP`);
+                      continue;
+                    }
+                    if (motherCandProx.proximity === 'distant') {
+                      console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable + distant location, SKIP`);
+                      continue;
+                    }
+                    // Try FreeBMD cross-verification
+                    const candMotherBirthYear = normalizeDate(cand.birthDate)?.year;
+                    if (candMotherBirthYear && candMotherBirthYear >= 1837 && candMotherBirthYear <= 1983) {
+                      const freebmdCheck = await this.confirmWithFreeBMD(
+                        cand.name, candMotherBirthYear, cand.birthPlace || childBirthPlace, null, motherAsc
+                      );
+                      if (freebmdCheck.bonusScore > 0) {
+                        console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable but FreeBMD confirms birth`);
+                      }
+                    }
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, accepting: known given name '${motherGiven}' matches`);
+                  } else if (srcVerify.primaryCount < motherMinSources) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need ${motherMinSources}+)`);
                     continue;
                   }
 
@@ -3334,11 +4012,12 @@ class ResearchEngine {
                     continue;
                   }
 
-                  const discoveryMethod = 'direct_search_verified';
+                  const discoveryMethod = srcVerify.authFailed ? 'direct_search_unverified' : 'direct_search_verified';
                   const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
                   console.log(`[Engine] asc#${motherAsc}: FOUND via direct search: ${cand.name} (${cand.id}) — ${srcVerify.primaryCount} primary sources`);
 
                   storedAscNumbers.add(motherAsc);
+                  usedFsPersonIds.add(cand.id);
                   this.storeOrUpdateAncestor(motherAsc, gen, {
                     fs_person_id: cand.id,
                     name: cand.name || 'Unknown',
@@ -3371,7 +4050,175 @@ class ResearchEngine {
                 console.log(`[Engine] asc#${motherAsc}: Direct search error: ${err.message}`);
               }
             } else {
-              console.log(`[Engine] asc#${motherAsc}: No mother surname hint available — slot left empty`);
+              // ── Strategy 2b: Marriage record triangulation for mothers ──
+              // When we have no maiden name for the mother, try to find her via the father's spouse info.
+              // If the father is in FS (with an fsId), query the spouses endpoint.
+              // If the father is NOT in FS but we know his name, search FS for him and check spouse info in results.
+              console.log(`[Engine] asc#${motherAsc}: No mother surname — trying marriage triangulation...`);
+
+              const fatherRec = this.db.getAncestorByAscNumber(this.jobId, fatherAsc);
+              let foundMotherViaSpouse = false;
+
+              if (fatherRec && this.fsSource) {
+                let spouseResults = [];
+
+                // Approach A: Father has an FS ID — use the spouses endpoint directly
+                if (fatherRec.fs_person_id) {
+                  try {
+                    spouseResults = await this.fsSource.getSpouses(fatherRec.fs_person_id);
+                    console.log(`[Engine] asc#${motherAsc}: Father ${fatherRec.name} (${fatherRec.fs_person_id}) has ${spouseResults.length} spouse(s) in FS`);
+                  } catch (err) {
+                    console.log(`[Engine] asc#${motherAsc}: getSpouses error: ${err.message}`);
+                  }
+                }
+
+                // Approach B: Father has no FS ID — search for him and check if results contain spouse info
+                if (spouseResults.length === 0 && !fatherRec.fs_person_id && fatherRec.name) {
+                  const fNp = parseNameParts(fatherRec.name);
+                  if (fNp.givenName && fNp.surname) {
+                    try {
+                      const fatherSearchResults = await this.fsSource.searchPerson({
+                        givenName: fNp.givenName,
+                        surname: fNp.surname,
+                        birthDate: fatherRec.birth_date ? String(normalizeDate(fatherRec.birth_date)?.year || '') : '',
+                        birthPlace: fatherRec.birth_place || childBirthPlace || 'England',
+                        count: 3,
+                      });
+
+                      // For each matching father candidate, try to get their spouses
+                      for (const fCand of fatherSearchResults) {
+                        if (this.rejectedFsIds.has(fCand.id)) continue;
+                        const candPlace = sanitizePlaceName(fCand.birthPlace || '');
+                        if (candPlace && isNonUkPlace(candPlace) && !isUkPlace(candPlace)) continue;
+
+                        // Verify this is the right person (name + birth year match)
+                        const candFirst = (fCand.name || '').split(' ')[0];
+                        if (!this.namesSimilar(candFirst, fNp.givenName)) continue;
+                        const candYear = normalizeDate(fCand.birthDate)?.year;
+                        const fatherYear = normalizeDate(fatherRec.birth_date)?.year;
+                        if (fatherYear && candYear && Math.abs(fatherYear - candYear) > 5) continue;
+
+                        try {
+                          const candidateSpouses = await this.fsSource.getSpouses(fCand.id);
+                          if (candidateSpouses.length > 0) {
+                            spouseResults = candidateSpouses;
+                            console.log(`[Engine] asc#${motherAsc}: Found ${candidateSpouses.length} spouse(s) for father candidate ${fCand.name} (${fCand.id})`);
+                            break;
+                          }
+                        } catch (e) { /* ignore */ }
+                      }
+                    } catch (err) {
+                      console.log(`[Engine] asc#${motherAsc}: Father search for spouse triangulation error: ${err.message}`);
+                    }
+                  }
+                }
+
+                // Process spouse results — find a female spouse with the right dates
+                for (const spouse of spouseResults) {
+                  if (storedAscNumbers.has(motherAsc)) break;
+                  const spouseGender = (spouse.gender || '').toLowerCase();
+                  if (spouseGender && spouseGender !== 'female') continue;
+
+                  const spousePlace = sanitizePlaceName(spouse.birthPlace || spouse.deathPlace || '');
+                  if (spousePlace && isNonUkPlace(spousePlace) && !isUkPlace(spousePlace)) continue;
+                  if (this.rejectedFsIds.has(spouse.id)) continue;
+                  // Duplicate FS person check
+                  if (usedFsPersonIds.has(spouse.id)) {
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — SKIP: already used in tree`);
+                    continue;
+                  }
+
+                  // Verify birth year is plausible as mother of the child
+                  const spouseYear = normalizeDate(spouse.birthDate)?.year;
+                  if (childBirthYear && spouseYear) {
+                    const gap = childBirthYear - spouseYear;
+                    if (gap < 12 || gap > 55) continue;
+                  }
+
+                  // Source verification — distant spouses need 4+ primary sources
+                  let spouseMinSources = 2;
+                  const spouseProx = childBirthPlace ? placeProximity(spousePlace, childBirthPlace) : { proximity: null };
+                  if (spouseProx.proximity === 'distant') {
+                    spouseMinSources = 4;
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — DISTANT (${spouseProx.county1} vs ${spouseProx.county2}), need 4+ sources`);
+                  }
+                  const srcVerify = await this.verifyParentSources(spouse.id);
+                  if (srcVerify.authFailed) {
+                    if (spouseProx.proximity === 'distant') {
+                      console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — auth unavailable + distant, SKIP`);
+                      continue;
+                    }
+                    // Spouse triangulation is more reliable than direct search
+                    // (marriage link is evidence), but still try FreeBMD verification
+                    const spouseBirthYear = normalizeDate(spouse.birthDate)?.year;
+                    if (spouseBirthYear && spouseBirthYear >= 1837 && spouseBirthYear <= 1983) {
+                      const freebmdCheck = await this.confirmWithFreeBMD(
+                        spouse.name, spouseBirthYear, spouse.birthPlace || childBirthPlace, null, motherAsc
+                      );
+                      if (freebmdCheck.bonusScore > 0) {
+                        console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — auth unavailable but FreeBMD confirms birth`);
+                      }
+                    }
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — auth unavailable, accepting based on marriage match`);
+                  } else if (srcVerify.primaryCount < spouseMinSources) {
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — ${srcVerify.primaryCount} primary sources, SKIP (need ${spouseMinSources}+)`);
+                    continue;
+                  }
+
+                  const validation = this.validateTreeParent(
+                    { ...spouse, birthDate: spouse.birthDate, deathDate: spouse.deathDate, birthPlace: spouse.birthPlace, deathPlace: spouse.deathPlace },
+                    childRec, 'Female'
+                  );
+                  if (!validation.valid) {
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — validation failed: ${validation.reasons.join('; ')}`);
+                    continue;
+                  }
+
+                  const discoveryMethod = 'spouse_triangulation';
+                  const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
+                  console.log(`[Engine] asc#${motherAsc}: FOUND via spouse triangulation: ${spouse.name} (${spouse.id}) — ${srcVerify.primaryCount} primary sources`);
+
+                  storedAscNumbers.add(motherAsc);
+                  usedFsPersonIds.add(spouse.id);
+                  foundMotherViaSpouse = true;
+                  this.storeOrUpdateAncestor(motherAsc, gen, {
+                    fs_person_id: spouse.id,
+                    name: spouse.name || 'Unknown',
+                    gender: spouse.gender || 'Female',
+                    birth_date: spouse.birthDate || '',
+                    birth_place: sanitizePlaceName(spouse.birthPlace || ''),
+                    death_date: spouse.deathDate || '',
+                    death_place: sanitizePlaceName(spouse.deathPlace || ''),
+                    confidence: 'pending',
+                    sources: ['FamilySearch'],
+                    raw_data: {
+                      discoveryMethod,
+                      spouseOf: fatherRec.name,
+                      fatherFsId: fatherRec.fs_person_id || '',
+                      sourceCount: srcVerify.sources.length,
+                      primarySourceCount: srcVerify.primaryCount,
+                      sourcePoints: srcVerify.totalPoints,
+                      sourceClassifications: srcVerify.classifications,
+                      validationReasons: validation.reasons,
+                    },
+                    confidence_score: 0,
+                    confidence_level: 'Pending',
+                    evidence_chain: srcVerify.classifications.map(c => ({ type: 'source_record', category: c.category, title: c.title })),
+                    search_log: [{ step: 'spouse_triangulation', fatherName: fatherRec.name, spouseId: spouse.id, sources: srcVerify.sources.length }],
+                    conflicts: [],
+                    verification_notes: `Found as spouse of ${fatherRec.name} (${discoveryMethod}). ${srcVerify.primaryCount} primary sources: ${srcSummary || 'none'}`,
+                  });
+                  break;
+                }
+
+                if (!foundMotherViaSpouse) {
+                  console.log(`[Engine] asc#${motherAsc}: Marriage triangulation failed — no suitable spouse found`);
+                }
+              }
+
+              if (!foundMotherViaSpouse) {
+                console.log(`[Engine] asc#${motherAsc}: No mother surname hint and no spouse data — slot left empty`);
+              }
             }
           }
         }

@@ -57,7 +57,7 @@ router.post('/start', requireAuth, async (req, res) => {
     father_name, mother_name, notes,
   };
 
-  const gens = parseInt(generations, 10) || 4;
+  const gens = parseInt(generations, 10) || 6;
 
   db.createResearchJob({
     id: jobId,
@@ -167,6 +167,38 @@ router.post('/start', requireAuth, async (req, res) => {
         death_place: anchor.deathPlace || '',
         ascendancy_number: ascNum,
         generation: 2,
+        confidence: 'customer_data',
+        sources: [],
+        raw_data: {},
+        confidence_score: 100,
+        confidence_level: 'Customer Data',
+        evidence_chain: [],
+        search_log: [],
+        conflicts: [],
+        verification_notes: 'Customer-provided data (from notes)',
+        accepted: 1,
+      });
+    }
+  }
+
+  // Asc#8-15 = Great-grandparents (if provided in notes)
+  for (const ascNum of [8, 9, 10, 11, 12, 13, 14, 15]) {
+    const anchor = noteAnchors[ascNum];
+    if (anchor && anchor.givenName) {
+      const fullName = `${anchor.givenName} ${anchor.surname || ''}`.trim();
+      const gender = ascNum % 2 === 0 ? 'Male' : 'Female';
+      console.log(`[Research] Pre-populating great-grandparent asc#${ascNum}: ${fullName}`);
+      db.addAncestor({
+        research_job_id: jobId,
+        fs_person_id: '',
+        name: fullName,
+        gender,
+        birth_date: anchor.birthDate || '',
+        birth_place: anchor.birthPlace || '',
+        death_date: anchor.deathDate || '',
+        death_place: anchor.deathPlace || '',
+        ascendancy_number: ascNum,
+        generation: 3,
         confidence: 'customer_data',
         sources: [],
         raw_data: {},
@@ -360,6 +392,11 @@ router.post('/:id/delete', requireAuth, (req, res) => {
 router.post('/:id/ancestor/:ancestorId/reresearch', requireAuth, async (req, res) => {
   const job = db.getResearchJob(req.params.id);
   if (!job) return res.status(404).send('Research job not found');
+
+  // Guard: don't start re-research if already running
+  if (job.status === 'running') {
+    return res.redirect(`/admin/research/${req.params.id}`);
+  }
 
   const ancestor = db.getAncestorById(parseInt(req.params.ancestorId, 10));
   if (!ancestor) return res.status(404).send('Ancestor not found');

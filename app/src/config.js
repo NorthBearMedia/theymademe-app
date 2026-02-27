@@ -26,6 +26,9 @@ module.exports = {
   GENI_TOKEN_URL: process.env.GENI_TOKEN_URL || 'https://www.geni.com/platform/oauth/request_token',
   GENI_REDIRECT_URI: process.env.GENI_REDIRECT_URI || 'https://theymademe.co.uk/admin/geni/callback',
 
+  // JotForm Intake Webhook
+  INTAKE_SECRET: process.env.INTAKE_SECRET || '',
+
   // FreeBMD
   FREEBMD_BASE_URL: process.env.FREEBMD_BASE_URL || 'https://www.freebmd.org.uk',
 

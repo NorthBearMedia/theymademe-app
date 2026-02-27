@@ -13,6 +13,7 @@ const familysearchRoutes = require('./routes/familysearch');
 const geniRoutes = require('./routes/geni');
 const researchRoutes = require('./routes/research');
 const exportRoutes = require('./routes/export');
+const apiRoutes = require('./routes/api');
 
 const app = express();
 
@@ -83,7 +84,7 @@ const originalRender = express.response.render;
 app.use((req, res, next) => {
   const _render = res.render.bind(res);
   res.render = function(view, locals = {}) {
-    if (view === 'login') {
+    if (view === 'login' || view === 'terms') {
       return _render(view, locals);
     }
     const viewPath = path.join(__dirname, 'views', view + '.ejs');
@@ -100,6 +101,14 @@ app.use('/admin/geni', geniRoutes);
 app.use('/admin/research', researchRoutes);
 app.use('/admin/export', exportRoutes);
 app.use('/admin', adminRoutes);
+
+// API routes (JotForm intake webhook — no session/layout needed)
+app.use('/api', apiRoutes);
+
+// Public pages (no auth, no admin layout)
+app.get('/terms', (req, res) => {
+  res.render('terms');
+});
 
 // Health check
 app.get('/api/health', (req, res) => {

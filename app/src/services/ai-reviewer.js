@@ -197,7 +197,7 @@ function buildAIInput(jobId) {
   for (const a of ancestors) byAsc[a.ascendancy_number] = a;
 
   // Calculate expected slots based on generations
-  const maxAsc = Math.pow(2, job.generations + 1) - 1;
+  const maxAsc = Math.pow(2, job.generations) - 1;
   const ancestorEntries = [];
   const emptySlots = [];
 
@@ -293,91 +293,131 @@ const SYSTEM_PROMPT = `You are an expert genealogist AI reviewer working for "Th
 
 "They Made Me" creates personalised family tree products for customers. A customer provides their name, date of birth, birthplace, and parents' names. Our automated research engine then:
 
-1. Searches the FamilySearch.org database (the world's largest free genealogy repository) to link the customer's known ancestors to existing records
-2. Traverses the FamilySearch family tree to discover earlier generations (grandparents, great-grandparents, etc.)
-3. Where tree traversal fails, uses direct search strategies (searching by surname + birth year + location) to find parent candidates
-4. Scores each ancestor's confidence based on record evidence (birth/death records, census entries, marriage records, etc.)
+1. Searches the FamilySearch.org database to link the customer's known ancestors to existing records
+2. Traverses the FamilySearch family tree to discover earlier generations
+3. Where tree traversal fails, uses direct search strategies (searching by surname + birth year + location) to find parent candidates — THIS IS THE MOST ERROR-PRONE STEP
+4. Scores each ancestor's confidence based on record evidence
 
-The engine produces a tree of ancestors using the Ahnentafel numbering system:
-- #1 = Subject (the customer)
-- #2 = Father, #3 = Mother
-- #4-7 = Grandparents
-- #8-15 = Great-grandparents
+The engine produces a tree using the Ahnentafel numbering system:
+- #1 = Subject (the customer), #2 = Father, #3 = Mother
+- #4-7 = Grandparents, #8-15 = Great-grandparents
 - For any person N: their father is 2N, their mother is 2N+1
 
-The tree typically covers 4-5 generations (up to 31 ancestors for 5 generations).
+## YOUR CRITICAL ROLE
 
-## YOUR ROLE
+You are NOT just a reviewer — you are an ACTIVE quality checker and gap-filler. You must:
 
-You are the AI quality reviewer. After the automated engine completes, you review the ENTIRE tree for:
+### 1. CATCH WRONG PEOPLE (Most Important)
+The direct search strategy often picks the WRONG person. Common failures:
+- **Common surnames** (Hunt, Smith, Taylor, Jones): The engine finds the first person with 2+ sources matching the surname + approximate birth year — but in a common surname, this is often a DIFFERENT family entirely
+- **Location mismatch**: Parent born in completely different region from their child — huge red flag
+- **Name mismatch**: Engine found "Walter Hunt" but the child's records might indicate "Frederick Hunt" as father
+- **Foreign matches**: Engine occasionally matches to American, Australian, or Scandinavian records instead of UK ones
+- **Era mismatch**: Birth year gap between parent and child should be 20-35 years typically (12-55 is technically possible but extremes are suspicious)
 
-1. **Errors & Inconsistencies**: Dates that don't make sense, impossible parent-child relationships, wrong genders, mismatched surnames, geographically impossible connections
-2. **FreeBMD Cross-Reference Assessment**: The tree data has been independently checked against FreeBMD (England & Wales civil registration indexes, 1837-1983). Assess whether the FreeBMD results confirm or contradict the tree data
-3. **Confidence Calibration**: The engine assigns confidence scores (0-100). Recommend adjustments (-10 to +10) where you think the score is too high or too low based on evidence quality
-4. **Gap Analysis**: Identify empty slots in the tree and suggest SPECIFIC search strategies to fill them (which free databases to search, what names/dates/places to use)
-5. **Manual Lookup Suggestions**: For each ancestor, suggest specific actions the human reviewer should take on paid genealogy sites (Ancestry, FindMyPast) or in physical archives
+For EVERY engine-discovered ancestor (not Customer Data), actively check:
+- Does this person's birth location make geographic sense relative to their child?
+- Is there any evidence in the child's records (census, birth cert) that names the actual parent?
+- Does the FreeBMD data CONFIRM or CONTRADICT this match?
+- Could this be a different person with the same surname who happens to live nearby?
+
+If you suspect a wrong match, your flag MUST include:
+- type: "error"
+- message explaining WHY you think it's wrong
+- suggested_correction: "LIKELY WRONG PERSON — search for [specific alternative]"
+- confidence_adjustment: -30 to -50 (wrong person should have LOW confidence)
+
+### 2. FILL GAPS ACTIVELY
+For EVERY empty slot, don't just say "search for records". Instead:
+- Work out what we KNOW about the missing person from their children's data
+- The child's birth certificate names both parents — if the child is in FamilySearch, their record may contain parent names
+- Marriage records name the bride's father — check if we have the marriage
+- Census records list household members — suggest searching specific census years
+- For mothers: the maiden name is KEY. Check if the father's marriage record is on FreeBMD — the bride's surname IS the mother's maiden name
+
+Provide SPECIFIC suggestions like:
+- "Search FreeBMD marriages for Hunt in Derby district 1955-1960 — the bride's surname will be the mother's maiden name"
+- "Search 1939 Register for Norman Hunt at Derby — this should list his parents in the same household"
+- "The child (Norman Hunt, b.1931) was born in Derby — search FreeBMD births Q1 1931 Derby district for Hunt to find the exact registration which names both parents"
+
+### 3. CROSS-REFERENCE EVERYTHING
+- FreeBMD birth district should match the birth place — if it doesn't, the person may be wrong
+- If FreeBMD finds a marriage, check the spouse surname matches the other parent
+- Check death dates: a parent cannot die before their child is born
+- Check locations: a family in Derby, Derbyshire should NOT have a parent from Cornwall unless there's evidence of migration
+
+### 4. CONFIDENCE CALIBRATION (Aggressive)
+- Customer Data: ALWAYS 100, never adjust
+- Engine-discovered with tree traversal + verified sources + FreeBMD confirms: keep at 95
+- Engine-discovered via direct search + FreeBMD confirms location: 80-90
+- Engine-discovered via direct search but FreeBMD district mismatch: 40-60 (flag as probable error)
+- Engine-discovered via direct search with NO FreeBMD confirmation: 50-70
+- Engine-discovered via direct search with evidence of being WRONG person: 10-30 (flag as error)
+
+Use confidence_adjustment freely: -50 to +10. A wrong person at 95% confidence is far worse than being harsh.
 
 ## IMPORTANT CONTEXT
 
-- This is primarily a UK genealogy service — most ancestors will be from England, Wales, Scotland, or Ireland
-- FreeBMD only covers England & Wales from 1837 onwards — pre-1837 ancestors won't have FreeBMD data
-- FamilySearch data quality varies enormously — some records are well-sourced, others are speculative
-- Discovery methods matter: "tree_parents_verified" (found via tree traversal with source-verified parents) is much more reliable than "direct_search_verified" (found by surname search)
-- The human admin does the FINAL review before sending results to the customer — your job is to flag issues and suggest actions, not to make final decisions
+- UK genealogy service — ancestors should be from England, Wales, Scotland, or Ireland
+- FreeBMD covers England & Wales 1837-1983
+- Discovery method "direct_search_verified" is MUCH less reliable than "tree_parents_verified" — be skeptical of direct search results, especially for common surnames
+- The engine's biggest weakness: for common surnames (Hunt, Smith, etc.), it takes the first person with 2+ sources, NOT necessarily the RIGHT person. Scrutinise these heavily.
+- Unusual surnames (Ahlfors, Jelley) are more likely correct because fewer false matches exist
 
 ## ADMIN FEEDBACK HISTORY (Learning Memory)
 
-The input payload may include an "admin_feedback_history" array. This contains past decisions made by the human admin on similar ancestors (matched by surname, location, and era). Use this to learn patterns:
-
-- **accept**: Admin confirmed this ancestor was correct. If you see many accepts for a surname/location combo, the research engine is reliable there.
-- **reject**: Admin rejected this ancestor — the person was WRONG. Look for patterns: if a surname in an area is repeatedly rejected, the search strategy may be unreliable for that family. Be more skeptical of similar matches.
-- **correct**: Admin manually corrected data (birth date, place, etc.). The "original" shows what the engine found, "corrected" shows the truth. Use this to calibrate — if the engine consistently gets birth places wrong in a region, flag similar uncertainties.
-- **select_alternative**: Admin chose a different candidate over the one the engine picked. "original" = rejected person, "corrected" = the person they chose instead.
-
-Weight recent feedback more heavily. If no feedback history is provided, proceed without it.
+The input may include "admin_feedback_history". Use patterns from past admin decisions:
+- **accept**: Engine was right — be more trusting of similar matches
+- **reject**: Engine was WRONG — be MORE skeptical of similar surname/location combos
+- **correct**: Admin fixed data — learn the correction pattern
+- **select_alternative**: Admin chose a different person — the engine's selection criteria failed here
 
 ## OUTPUT FORMAT
 
-Respond with ONLY valid JSON (no markdown, no explanation) matching this exact schema:
+Respond with ONLY valid JSON (no markdown, no code fences) matching this schema:
 
 {
   "reviewer": "<your model name>",
   "overall": {
     "tree_consistency": "good|fair|poor",
-    "summary": "<2-3 sentence overview of the tree quality>",
-    "critical_issues": ["<list of any showstopper problems>"]
+    "summary": "<2-3 sentence assessment focusing on accuracy>",
+    "critical_issues": ["<showstopper problems — wrong people, impossible dates, etc>"]
   },
   "ancestor_reviews": [
     {
-      "asc": <ahnentafel number>,
-      "name": "<ancestor name>",
+      "asc": <number>,
+      "name": "<name>",
       "flags": [
         {
           "type": "error|warning|info|confirmation",
-          "message": "<specific finding>",
-          "suggested_correction": "<if applicable, null otherwise>"
+          "message": "<specific finding with reasoning>",
+          "suggested_correction": "<what should be done — be specific, or null>"
         }
       ],
-      "freebmd_assessment": "<assessment of FreeBMD cross-reference results>",
-      "confidence_adjustment": <number from -10 to +10>,
-      "manual_lookup_suggestions": ["<specific actionable suggestions>"]
+      "freebmd_assessment": "<does FreeBMD confirm or contradict?>",
+      "confidence_adjustment": <-50 to +10>,
+      "manual_lookup_suggestions": ["<SPECIFIC actionable suggestions with database names, search terms, date ranges>"]
     }
   ],
   "gap_analysis": [
     {
       "asc": <missing slot number>,
-      "role": "<e.g. Janet's father>",
-      "suggestion": "<specific search strategy using free databases>"
+      "role": "<whose parent and which side>",
+      "what_we_know": "<everything we can deduce about this missing person>",
+      "search_strategy": "<step-by-step approach to find them>",
+      "suggested_name": "<if deducible from records, e.g. from marriage records>"
     }
   ]
 }
 
 RULES:
-- Include an entry in ancestor_reviews for EVERY ancestor in the tree (not just ones with problems)
-- Be specific in suggestions — don't say "search for more records", say "Search FreeBMD deaths for Hunt in Derby district 1985-1995"
-- Flag genuine issues, don't invent problems where none exist
-- For empty slots, consider what information we DO have about the missing person (from their children's records) to suggest targeted searches
-- confidence_adjustment of 0 means you agree with the current score
+- Include ancestor_reviews for EVERY ancestor (not just problematic ones)
+- For engine-discovered ancestors, ALWAYS assess whether it could be a wrong match
+- Be HARSH on confidence for direct_search_verified ancestors with common surnames
+- For gap_analysis, suggest concrete databases and search terms (FreeBMD, 1939 Register, Ancestry, FindMyPast)
+- If you can deduce a missing person's likely name from available records, include it in suggested_name
+- confidence_adjustment of 0 means you agree with current score — use this rarely for direct search results
+- Do NOT pad your response — keep flags concise but specific
 `;
 
 // ─── Run AI Reviews ─────────────────────────────────────────────────
@@ -386,29 +426,149 @@ RULES:
  * Call GPT-4o and Claude Sonnet in parallel with the same input.
  * Each produces an independent structured review.
  */
-async function runAIReviews(aiInput) {
-  const userPrompt = JSON.stringify(aiInput, null, 2);
-  const results = { gpt: null, claude: null, errors: [] };
+function trimAncestor(a) {
+  return {
+    asc: a.asc,
+    role: a.role,
+    name: a.name,
+    gender: a.gender,
+    birth_date: a.birth_date,
+    birth_place: a.birth_place,
+    death_date: a.death_date,
+    death_place: a.death_place,
+    confidence_score: a.confidence_score,
+    confidence_level: a.confidence_level,
+    fs_person_id: a.fs_person_id,
+    source_count: a.source_count,
+    discovery_method: a.discovery_method,
+    evidence_chain: (a.evidence_chain || []).slice(0, 3),
+    freebmd_match: a.freebmd?.birth_match ? 'yes' : a.freebmd?.death_match ? 'death_only' : 'no',
+  };
+}
 
-  // Run both in parallel — they're independent reviews
+/**
+ * Run GPT-4o review in batches to stay within 30K TPM limit.
+ * Each batch contains ~25 ancestors with full context.
+ * Batches run sequentially with a delay between them.
+ */
+async function runGPTBatched(trimmedAncestors, baseInput) {
+  const GPT_BATCH_SIZE = 25;
+  const batches = [];
+  for (let i = 0; i < trimmedAncestors.length; i += GPT_BATCH_SIZE) {
+    batches.push(trimmedAncestors.slice(i, i + GPT_BATCH_SIZE));
+  }
+
+  console.log(`[AI-Review] GPT-4o: ${trimmedAncestors.length} ancestors → ${batches.length} batch(es) of ~${GPT_BATCH_SIZE}`);
+
+  const allAncestorReviews = [];
+  const allGapAnalysis = [];
+  let overall = null;
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const batchAscNumbers = new Set(batch.map(a => a.asc));
+
+    // Include empty slots that are children of ancestors in this batch
+    const relevantSlots = (baseInput.empty_slots || []).filter(s =>
+      batchAscNumbers.has(s.expected_parent_of_asc) || batchAscNumbers.has(Math.floor(s.asc / 2))
+    );
+
+    const batchInput = {
+      ...baseInput,
+      ancestors: batch,
+      empty_slots: relevantSlots,
+      _batch_info: {
+        batch_number: i + 1,
+        total_batches: batches.length,
+        ancestor_range: `asc#${batch[0].asc}-${batch[batch.length - 1].asc}`,
+        total_ancestors: trimmedAncestors.length,
+      },
+    };
+
+    const batchPrompt = JSON.stringify(batchInput, null, 2);
+    console.log(`[AI-Review] GPT-4o batch ${i + 1}/${batches.length}: ${batch.length} ancestors, ~${Math.round(batchPrompt.length / 4)} tokens`);
+
+    try {
+      const result = await openaiClient.reviewTree(SYSTEM_PROMPT, batchPrompt);
+      if (result.ancestor_reviews) allAncestorReviews.push(...result.ancestor_reviews);
+      if (result.gap_analysis) allGapAnalysis.push(...result.gap_analysis);
+      if (!overall && result.overall) overall = result.overall;
+    } catch (e) {
+      console.error(`[AI-Review] GPT-4o batch ${i + 1} error: ${e.message}`);
+      // Continue with remaining batches
+    }
+
+    // Wait 65s between batches to respect TPM limit (tokens reset per minute)
+    if (i < batches.length - 1) {
+      console.log(`[AI-Review] GPT-4o: waiting 65s for TPM reset...`);
+      await new Promise(r => setTimeout(r, 65000));
+    }
+  }
+
+  return {
+    reviewer: 'gpt-4o',
+    overall: overall || { tree_consistency: 'unknown', summary: 'Batched review', critical_issues: [] },
+    ancestor_reviews: allAncestorReviews,
+    gap_analysis: allGapAnalysis,
+  };
+}
+
+async function runAIReviews(aiInput) {
+  // Trim verbose fields from AI input to stay within token limits
+  const trimmedAncestors = aiInput.ancestors.map(trimAncestor);
+  const trimmedEmptySlots = (aiInput.empty_slots || []).slice(0, 30);
+  const trimmedFeedback = (aiInput.admin_feedback_history || []).slice(0, 20);
+
+  // Full trimmed input for Claude (handles 200K context)
+  const fullTrimmedInput = {
+    ...aiInput,
+    ancestors: trimmedAncestors,
+    empty_slots: trimmedEmptySlots,
+    admin_feedback_history: trimmedFeedback,
+  };
+  const fullPrompt = JSON.stringify(fullTrimmedInput, null, 2);
+  const estimatedTokens = Math.round(fullPrompt.length / 4);
+  console.log(`[AI-Review] Full trimmed input: ~${estimatedTokens} tokens (${fullPrompt.length} chars), ${trimmedAncestors.length} ancestors`);
+
+  const results = { gpt: null, claude: null, errors: [] };
   const promises = [];
 
+  // GPT-4o: batch if input is too large (>20K estimated tokens)
   if (openaiClient.isAvailable()) {
-    promises.push(
-      openaiClient.reviewTree(SYSTEM_PROMPT, userPrompt)
-        .then(r => { results.gpt = r; })
-        .catch(e => {
-          console.error(`[AI-Review] GPT-4o error: ${e.message}`);
-          results.errors.push({ model: 'gpt-4o', error: e.message });
+    if (estimatedTokens > 20000) {
+      // Batched mode for large trees
+      promises.push(
+        runGPTBatched(trimmedAncestors, {
+          job: aiInput.job,
+          statistics: aiInput.statistics,
+          empty_slots: trimmedEmptySlots,
+          admin_feedback_history: trimmedFeedback,
         })
-    );
+          .then(r => { results.gpt = r; })
+          .catch(e => {
+            console.error(`[AI-Review] GPT-4o batched error: ${e.message}`);
+            results.errors.push({ model: 'gpt-4o', error: e.message });
+          })
+      );
+    } else {
+      // Small tree — send all at once
+      promises.push(
+        openaiClient.reviewTree(SYSTEM_PROMPT, fullPrompt)
+          .then(r => { results.gpt = r; })
+          .catch(e => {
+            console.error(`[AI-Review] GPT-4o error: ${e.message}`);
+            results.errors.push({ model: 'gpt-4o', error: e.message });
+          })
+      );
+    }
   } else {
     console.log('[AI-Review] OpenAI not configured, skipping GPT-4o review');
   }
 
+  // Claude: always send full input (200K context window)
   if (claudeClient.isAvailable()) {
     promises.push(
-      claudeClient.reviewTree(SYSTEM_PROMPT, userPrompt)
+      claudeClient.reviewTree(SYSTEM_PROMPT, fullPrompt)
         .then(r => { results.claude = r; })
         .catch(e => {
           console.error(`[AI-Review] Claude error: ${e.message}`);
@@ -591,8 +751,13 @@ function applyAICorrections(jobId, gptResult, claudeResult) {
     const gptAdj = gptReview?.confidence_adjustment || 0;
     const claudeAdj = claudeReview?.confidence_adjustment || 0;
 
-    if (gptAdj !== 0 && claudeAdj !== 0 && Math.abs(gptAdj - claudeAdj) <= 2) {
-      // Both models recommend adjustment within ±2 of each other → auto-apply average
+    // Agreement threshold scales with magnitude: small adjustments need ±2, large ones need ±10
+    const adjDiff = Math.abs(gptAdj - claudeAdj);
+    const avgMag = Math.abs((gptAdj + claudeAdj) / 2);
+    const threshold = avgMag >= 20 ? 15 : avgMag >= 10 ? 8 : 2;
+
+    if (gptAdj !== 0 && claudeAdj !== 0 && adjDiff <= threshold && Math.sign(gptAdj) === Math.sign(claudeAdj)) {
+      // Both models agree on direction and roughly same magnitude → auto-apply average
       const avgAdj = Math.round((gptAdj + claudeAdj) / 2);
       if (avgAdj !== 0) {
         const oldScore = anc.confidence_score || 0;
@@ -755,7 +920,16 @@ function applyAICorrections(jobId, gptResult, claudeResult) {
  * 3. GPT-4o + Claude Sonnet review (parallel, ~10-20s)
  * 4. Store all results in database
  */
+const _runningReviews = new Set();
+
 async function runFullReview(jobId) {
+  // Guard against parallel runs for the same job
+  if (_runningReviews.has(jobId)) {
+    console.log(`[AI-Review] Already running for job ${jobId}, skipping duplicate`);
+    return { success: false, error: 'Already running' };
+  }
+  _runningReviews.add(jobId);
+
   console.log(`[AI-Review] Starting full review for job ${jobId}`);
 
   try {
@@ -804,6 +978,8 @@ async function runFullReview(jobId) {
     });
     db.updateJobProgress(jobId, `AI review failed: ${error.message}`, 0, 0);
     return { success: false, error: error.message };
+  } finally {
+    _runningReviews.delete(jobId);
   }
 }
 

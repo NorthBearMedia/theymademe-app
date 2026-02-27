@@ -1,310 +1,229 @@
-const fs = require('fs');
-const path = require('path');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 
-// ─── Layout Constants (calibrated against Blank Tree template) ─────────
-const PAGE_WIDTH = 1190.25;
-const PAGE_HEIGHT = 842.25;
-const CX = PAGE_WIDTH / 2;    // 595.125
-const CY = 305;                // vertical center at tree trunk base
+// ─── Layout ─────────────────────────────────────────────────────
+const PW = 1190, PH = 842;
+const CX = PW / 2, CY = PH / 2 + 15;
+const CENTER_R = 48;
 
-// Ring boundaries for each generation (inner/outer radius in points)
-const RING_BOUNDS = [
-  null,                         // Gen 0 — subject (title area)
-  { inner: 193, outer: 227 },   // Gen 1 — parents
-  { inner: 227, outer: 268 },   // Gen 2 — grandparents
-  { inner: 268, outer: 335 },   // Gen 3 — great-grandparents
-  { inner: 335, outer: 400 },   // Gen 4 — 2x great-grandparents
-  { inner: 400, outer: 487 },   // Gen 5 — 3x great-grandparents
-  { inner: 487, outer: 550 },   // Gen 6 — 4x great-grandparents
+const RINGS = [
+  null,
+  { inner: 52, outer: 114 },   // gen 1: 62pt (parents need room)
+  { inner: 114, outer: 168 },  // gen 2: 54pt
+  { inner: 168, outer: 220 },  // gen 3: 52pt
+  { inner: 220, outer: 270 },  // gen 4: 50pt
+  { inner: 270, outer: 318 },  // gen 5: 48pt
+  { inner: 318, outer: 364 },  // gen 6: 46pt
 ];
 
-// Font sizes per generation
-const FONT_SIZES = {
-  name:  [0, 8.5, 7, 6, 5.5, 4.5, 4],
-  detail:[0, 5.5, 5, 4.5, 4, 3.5, 3.2],
-};
+const NAME_SZ   = [0, 7, 6, 5.5, 4.8, 4, 3.5];
+const DETAIL_SZ = [0, 5, 4.5, 4, 3.5, 3, 2.6];
 
-const TEXT_COLOR = rgb(0.15, 0.22, 0.18);
-const TITLE_SIZE = 22;
-const SUBTITLE_SIZE = 10;
+const WHITE = rgb(1, 1, 1);
+const CREAM = rgb(0.98, 0.96, 0.92);
+const DARK  = rgb(0.12, 0.18, 0.14);
+const EMPTY_CLR = rgb(0.90, 0.88, 0.84);
 
-// ─── Ahnentafel Utilities ──────────────────────────────────────────────
+// ─── Ahnentafel ─────────────────────────────────────────────────
+function gen(asc) { return asc < 1 ? 0 : Math.floor(Math.log2(asc)); }
 
-function ahnentafelGeneration(asc) {
-  if (asc < 1) return 0;
-  return Math.floor(Math.log2(asc));
+function isPaternal(asc) {
+  let n = asc;
+  while (n > 3) n = Math.floor(n / 2);
+  return n === 2;
 }
 
-function getSegmentAngle(ascNumber) {
-  const gen = ahnentafelGeneration(ascNumber);
-  if (gen === 0) return { startAngle: 0, endAngle: 180, midAngle: 90 };
-
-  const segCount = Math.pow(2, gen);
-  const segWidth = 180 / segCount;
-  const indexInGen = ascNumber - Math.pow(2, gen);
-
-  // Index 0 = leftmost (near 180°), last index = rightmost (near 0°)
-  const startAngle = 180 - (indexInGen + 1) * segWidth;
-  const endAngle = 180 - indexInGen * segWidth;
-  const midAngle = (startAngle + endAngle) / 2;
-
-  return { startAngle, endAngle, midAngle };
+function segColor(asc) {
+  const g = gen(asc);
+  const pat = isPaternal(asc);
+  const b = pat ? [0.10, 0.23, 0.16] : [0.10, 0.18, 0.25];
+  const s = 0.055;
+  return rgb(b[0] + g * s, b[1] + g * s, b[2] + g * s);
 }
 
-function polarToPage(radius, angleDeg) {
-  const rad = angleDeg * Math.PI / 180;
-  return {
-    x: CX + radius * Math.cos(rad),
-    y: CY + radius * Math.sin(rad),
-  };
+function segAngle(asc) {
+  const g = gen(asc);
+  const count = Math.pow(2, g);
+  const w = 360 / count;
+  const idx = asc - count;
+  const st = 90 + idx * w;
+  return { start: st, end: st + w, mid: st + w / 2 };
 }
 
-// ─── Text Helpers ──────────────────────────────────────────────────────
-
-function extractYear(dateStr) {
-  if (!dateStr) return '';
-  const match = dateStr.match(/\b(\d{4})\b/);
-  return match ? match[1] : dateStr;
+// ─── Text helpers ───────────────────────────────────────────────
+function extractYear(d) {
+  if (!d) return '';
+  const m = d.match(/\b(\d{4})\b/);
+  return m ? m[1] : d;
 }
 
-function formatDates(ancestor) {
-  const parts = [];
-  if (ancestor.birth_date) {
-    const y = extractYear(ancestor.birth_date);
-    if (y) parts.push('b. ' + y);
-  }
-  if (ancestor.death_date) {
-    const y = extractYear(ancestor.death_date);
-    if (y) parts.push('d. ' + y);
-  }
-  return parts.join(' \u2013 ');
+function fmtDates(a) {
+  const p = [];
+  if (a.birth_date) { const y = extractYear(a.birth_date); if (y) p.push('b.' + y); }
+  if (a.death_date) { const y = extractYear(a.death_date); if (y) p.push('d.' + y); }
+  return p.join(' \u2013 ');
 }
 
-function formatPlace(ancestor) {
-  const place = ancestor.birth_place || ancestor.death_place || '';
+function fmtPlace(a) {
+  const place = a.birth_place || a.death_place || '';
   if (!place) return '';
-  const cleaned = place.replace(/[^\x20-\x7E,]/g, '').trim();
-  if (!cleaned) return '';
-  const parts = cleaned.split(',').map(p => p.trim()).filter(Boolean);
+  const cl = place.replace(/[^\x20-\x7E,]/g, '').trim();
+  if (!cl) return '';
+  const parts = cl.split(',').map(p => p.trim()).filter(Boolean);
   if (parts.length <= 2) return parts.join(', ');
-  // Prefer town + county (first + second-to-last), skip country
-  if (parts.length >= 3) {
-    // Check if last part is a country (England, Wales, Scotland, etc.)
-    const lastPart = parts[parts.length - 1].toLowerCase();
-    const countries = ['england', 'wales', 'scotland', 'ireland', 'united kingdom', 'uk', 'united states', 'usa'];
-    if (countries.includes(lastPart)) {
-      return parts[0] + ', ' + parts[parts.length - 2];
-    }
-  }
+  const last = parts[parts.length - 1].toLowerCase();
+  const countries = ['england','wales','scotland','ireland','united kingdom','uk','united states','usa'];
+  if (parts.length >= 3 && countries.includes(last)) return parts[0] + ', ' + parts[parts.length - 2];
   return parts[0] + ', ' + parts[parts.length - 1];
 }
 
-function truncateText(text, font, fontSize, maxWidth) {
-  if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) return text;
+function truncate(text, font, sz, maxW) {
+  if (font.widthOfTextAtSize(text, sz) <= maxW) return text;
   let t = text;
-  while (t.length > 3 && font.widthOfTextAtSize(t + '..', fontSize) > maxWidth) {
-    t = t.slice(0, -1);
-  }
+  while (t.length > 3 && font.widthOfTextAtSize(t + '..', sz) > maxW) t = t.slice(0, -1);
   return t + '..';
 }
 
-// ─── Draw Text in Fan Segment ──────────────────────────────────────────
-//
-// Text is drawn RADIALLY — the baseline runs along the radius.
-// On the right half (0°-90°): text reads from center outward (bottom-to-top)
-// On the left half (90°-180°): text is flipped to read from center outward
-//
-// lineOffset shifts perpendicular to the radius (along the arc) to stack lines.
-// Positive offset = shift CCW (toward higher angles)
+// ─── Drawing: filled arc segment ────────────────────────────────
+function drawArc(page, inner, outer, startDeg, endDeg, color) {
+  const steps = Math.max(12, Math.ceil((endDeg - startDeg) / 2));
+  const toRad = Math.PI / 180;
+  const pts = [];
 
-function drawSegmentText(page, text, font, fontSize, radius, angleDeg, lineOffset, color) {
-  const isLeftHalf = angleDeg > 90;
-  const radRad = angleDeg * Math.PI / 180;
-  const textWidth = font.widthOfTextAtSize(text, fontSize);
-
-  // Unit vectors
-  const rx = Math.cos(radRad);  // radial outward
-  const ry = Math.sin(radRad);
-  const tx = -Math.sin(radRad); // tangential CCW
-  const ty = Math.cos(radRad);
-
-  // Base position: center of the ring at this angle
-  const baseX = CX + radius * rx;
-  const baseY = CY + radius * ry;
-
-  let drawX, drawY, rotation;
-
-  if (!isLeftHalf) {
-    // RIGHT HALF (0°-90°): rotation = angle - 90
-    // Text baseline points radially outward
-    // drawText origin = start of text (inner end)
-    // To center: move origin inward by textWidth/2
-    rotation = angleDeg - 90;
-    drawX = baseX - (textWidth / 2) * rx + lineOffset * tx;
-    drawY = baseY - (textWidth / 2) * ry + lineOffset * ty;
-  } else {
-    // LEFT HALF (90°-180°): rotation = angle + 90
-    // Text baseline points radially inward (text reads center→outward)
-    // drawText origin = start of text (outer end)
-    // To center: move origin outward by textWidth/2
-    rotation = angleDeg + 90;
-    drawX = baseX + (textWidth / 2) * rx + lineOffset * tx;
-    drawY = baseY + (textWidth / 2) * ry + lineOffset * ty;
+  for (let i = 0; i <= steps; i++) {
+    const a = (startDeg + (endDeg - startDeg) * i / steps) * toRad;
+    pts.push(`${(inner * Math.cos(a)).toFixed(2)} ${(-inner * Math.sin(a)).toFixed(2)}`);
+  }
+  for (let i = steps; i >= 0; i--) {
+    const a = (startDeg + (endDeg - startDeg) * i / steps) * toRad;
+    pts.push(`${(outer * Math.cos(a)).toFixed(2)} ${(-outer * Math.sin(a)).toFixed(2)}`);
   }
 
-  page.drawText(text, {
-    x: drawX,
-    y: drawY,
-    size: fontSize,
-    font,
-    color,
-    rotate: degrees(rotation),
-  });
+  const d = `M ${pts[0]} ` + pts.slice(1).map(p => `L ${p}`).join(' ') + ' Z';
+  page.drawSvgPath(d, { x: CX, y: CY, color, borderColor: WHITE, borderWidth: 0.6, borderOpacity: 0.7 });
 }
 
-// ─── Main PDF Generator ────────────────────────────────────────────────
+// ─── Drawing: radial text ───────────────────────────────────────
+function drawRadial(page, text, font, sz, midR, angleDeg, lineOff, color) {
+  const theta = ((angleDeg % 360) + 360) % 360;
+  const rad = angleDeg * Math.PI / 180;
+  const tw = font.widthOfTextAtSize(text, sz);
+  const rx = Math.cos(rad), ry = Math.sin(rad);
+  const tx = -Math.sin(rad), ty = Math.cos(rad);
+  const flip = theta > 90 && theta < 270;
+  const eff = flip ? -lineOff : lineOff;
 
-async function generateFanChartPdf(ancestors, familyName, generations = 4) {
-  const templatePath = path.join(__dirname, '..', 'templates', 'blank-tree.pdf');
-  const templateBytes = fs.readFileSync(templatePath);
-  const pdfDoc = await PDFDocument.load(templateBytes);
-  const page = pdfDoc.getPages()[0];
-
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-  const fontItalic = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
-
-  // Build ancestor lookup
-  const ancestorMap = {};
-  for (const a of ancestors) {
-    ancestorMap[a.ascendancy_number] = a;
+  let x, y, rot;
+  if (!flip) {
+    rot = angleDeg;
+    x = CX + (midR - tw / 2) * rx + eff * tx;
+    y = CY + (midR - tw / 2) * ry + eff * ty;
+  } else {
+    rot = angleDeg + 180;
+    x = CX + (midR + tw / 2) * rx + eff * tx;
+    y = CY + (midR + tw / 2) * ry + eff * ty;
   }
 
-  // Draw each ancestor in their segment
+  page.drawText(text, { x, y, size: sz, font, color, rotate: degrees(rot) });
+}
+
+// ─── Main generator ─────────────────────────────────────────────
+async function generateFanChartPdf(ancestors, familyName, generations = 6) {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([PW, PH]);
+  const fontR = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+  const fontB = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+  const fontI = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+
+  page.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: CREAM });
+
+  const map = {};
+  for (const a of ancestors) map[a.ascendancy_number] = a;
   const maxAsc = Math.pow(2, generations + 1) - 1;
 
-  // Draw empty segment outlines for positions without ancestors
-  const EMPTY_COLOR = rgb(0.85, 0.82, 0.78); // light parchment outline
+  // Draw segments
   for (let asc = 2; asc <= maxAsc; asc++) {
-    if (ancestorMap[asc]) continue; // skip filled segments
-    const gen = ahnentafelGeneration(asc);
-    if (gen < 1 || gen > 6 || !RING_BOUNDS[gen]) continue;
-
-    const { inner, outer } = RING_BOUNDS[gen];
-    const { startAngle, endAngle, midAngle } = getSegmentAngle(asc);
-
-    // Draw arc lines to outline the empty segment
-    const startRad = startAngle * Math.PI / 180;
-    const endRad = endAngle * Math.PI / 180;
-    const midRad = midAngle * Math.PI / 180;
-
-    // Draw two radial lines (inner to outer at each edge)
-    const lineWidth = 0.3;
-    // Inner arc point at start angle
-    const p1 = polarToPage(inner, startAngle);
-    const p2 = polarToPage(outer, startAngle);
-    page.drawLine({ start: p1, end: p2, thickness: lineWidth, color: EMPTY_COLOR, opacity: 0.3 });
-
-    const p3 = polarToPage(inner, endAngle);
-    const p4 = polarToPage(outer, endAngle);
-    page.drawLine({ start: p3, end: p4, thickness: lineWidth, color: EMPTY_COLOR, opacity: 0.3 });
+    const g = gen(asc);
+    if (g < 1 || g > 6 || !RINGS[g]) continue;
+    const { inner, outer } = RINGS[g];
+    const { start, end } = segAngle(asc);
+    drawArc(page, inner, outer, start, end, map[asc] ? segColor(asc) : EMPTY_CLR);
   }
 
+  // Center circle
+  page.drawCircle({ x: CX, y: CY, size: CENTER_R, color: CREAM, borderColor: rgb(0.14, 0.28, 0.20), borderWidth: 2 });
+
+  // Subject in center
+  const subj = map[1];
+  if (subj) {
+    const np = (subj.name || 'Subject').split(' ');
+    const first = np.slice(0, -1).join(' ') || np[0];
+    const sur = np.length > 1 ? np[np.length - 1].toUpperCase() : '';
+    const fW = fontR.widthOfTextAtSize(first, 8);
+    page.drawText(first, { x: CX - fW / 2, y: CY + 10, size: 8, font: fontR, color: DARK });
+    if (sur) {
+      const sW = fontB.widthOfTextAtSize(sur, 9);
+      page.drawText(sur, { x: CX - sW / 2, y: CY - 2, size: 9, font: fontB, color: DARK });
+    }
+    const bY = extractYear(subj.birth_date);
+    if (bY) {
+      const bt = 'b. ' + bY;
+      const bW = fontI.widthOfTextAtSize(bt, 6);
+      page.drawText(bt, { x: CX - bW / 2, y: CY - 14, size: 6, font: fontI, color: DARK });
+    }
+    const bp = fmtPlace(subj);
+    if (bp) {
+      const pW = fontI.widthOfTextAtSize(bp, 5.5);
+      page.drawText(bp, { x: CX - pW / 2, y: CY - 24, size: 5.5, font: fontI, color: DARK });
+    }
+  }
+
+  // Ancestor text
   for (let asc = 2; asc <= maxAsc; asc++) {
-    const ancestor = ancestorMap[asc];
-    if (!ancestor) continue;
+    const anc = map[asc];
+    if (!anc) continue;
+    const g = gen(asc);
+    if (g < 1 || g > 6 || !RINGS[g]) continue;
+    const { inner, outer } = RINGS[g];
+    const { mid } = segAngle(asc);
+    const midR = (inner + outer) / 2;
+    // Gen 1 parents have 180° segments — text is nearly horizontal, use generous width
+    // Gen 2 also gets extra room since segments are 90°
+    const maxTW = g === 1 ? 140 : g === 2 ? (outer - inner) * 0.95 : (outer - inner) * 0.88;
+    const nSz = NAME_SZ[g], dSz = DETAIL_SZ[g];
 
-    const gen = ahnentafelGeneration(asc);
-    if (gen < 1 || gen > 6 || !RING_BOUNDS[gen]) continue;
+    const np = (anc.name || 'Unknown').split(' ');
+    const fmt = np.length > 1 ? np.slice(0, -1).join(' ') + ' ' + np[np.length - 1].toUpperCase() : np[0].toUpperCase();
+    const nameT = truncate(fmt, fontB, nSz, maxTW);
+    const dateT = fmtDates(anc);
+    const truncD = dateT ? truncate(dateT, fontR, dSz, maxTW) : '';
+    const placeT = fmtPlace(anc);
+    const truncP = placeT ? truncate(placeT, fontI, dSz, maxTW) : '';
 
-    const { inner, outer } = RING_BOUNDS[gen];
-    const { startAngle, endAngle, midAngle } = getSegmentAngle(asc);
-    const textRadius = (inner + outer) / 2;
+    const lines = [{ t: nameT, f: fontB, s: nSz }];
+    if (truncD) lines.push({ t: truncD, f: fontR, s: dSz });
+    if (truncP) lines.push({ t: truncP, f: fontI, s: dSz });
 
-    const nameFontSize = FONT_SIZES.name[gen];
-    const detailFontSize = FONT_SIZES.detail[gen];
-
-    // Max text width ≈ ring width (radial extent of the segment)
-    const ringWidth = outer - inner;
-    const maxTextWidth = ringWidth * 0.85;
-
-    // Prepare text lines
-    // Format name with SURNAME in uppercase
-    const nameParts = (ancestor.name || 'Unknown').split(' ');
-    const formattedName = nameParts.length > 1
-      ? nameParts.slice(0, -1).join(' ') + ' ' + nameParts[nameParts.length - 1].toUpperCase()
-      : nameParts[0].toUpperCase();
-    const nameText = truncateText(formattedName, fontBold, nameFontSize, maxTextWidth);
-    const dateText = formatDates(ancestor);
-    const truncDate = dateText ? truncateText(dateText, fontRegular, detailFontSize, maxTextWidth) : '';
-    const placeText = formatPlace(ancestor);
-    const truncPlace = placeText ? truncateText(placeText, fontItalic, detailFontSize, maxTextWidth) : '';
-
-    // Stack lines perpendicular to the radius (along the arc)
-    const lines = [];
-    lines.push({ text: nameText, font: fontBold, size: nameFontSize });
-    if (truncDate) lines.push({ text: truncDate, font: fontRegular, size: detailFontSize });
-    if (truncPlace) lines.push({ text: truncPlace, font: fontItalic, size: detailFontSize });
-
-    // Calculate line offsets to center the block
-    const spacing = nameFontSize * 0.85;
-    const totalSpan = (lines.length - 1) * spacing;
-    const startOffset = totalSpan / 2;
+    const sp = nSz * 0.9;
+    const totalSpan = (lines.length - 1) * sp;
+    const startOff = totalSpan / 2;
 
     for (let i = 0; i < lines.length; i++) {
-      const offset = startOffset - i * spacing;
-      drawSegmentText(
-        page,
-        lines[i].text,
-        lines[i].font,
-        lines[i].size,
-        textRadius,
-        midAngle,
-        offset,
-        TEXT_COLOR,
-      );
+      drawRadial(page, lines[i].t, lines[i].f, lines[i].s, midR, mid, startOff - i * sp, WHITE);
     }
   }
 
-  // ─── Title at bottom ───────────────────────────────────────────────
-  const subject = ancestorMap[1];
-  const surnameParts = familyName ? familyName.split(' ') : (subject ? subject.name.split(' ') : ['Family']);
-  const displaySurname = surnameParts[surnameParts.length - 1];
-  const titleText = `The ${displaySurname} Family`;
-  const titleWidth = fontBold.widthOfTextAtSize(titleText, TITLE_SIZE);
-  page.drawText(titleText, {
-    x: CX - titleWidth / 2,
-    y: 45,
-    size: TITLE_SIZE,
-    font: fontBold,
-    color: TEXT_COLOR,
-  });
+  // Title
+  const surParts = familyName ? familyName.split(' ') : (subj ? subj.name.split(' ') : ['Family']);
+  const dSur = surParts[surParts.length - 1];
+  const titleT = `The ${dSur} Family`;
+  const titleW = fontB.widthOfTextAtSize(titleT, 24);
+  page.drawText(titleT, { x: CX - titleW / 2, y: 35, size: 24, font: fontB, color: DARK });
 
-  if (subject) {
-    const sText = subject.name;
-    const sWidth = fontRegular.widthOfTextAtSize(sText, SUBTITLE_SIZE);
-    page.drawText(sText, {
-      x: CX - sWidth / 2,
-      y: 80,
-      size: SUBTITLE_SIZE,
-      font: fontRegular,
-      color: TEXT_COLOR,
-    });
-
-    const birthYear = extractYear(subject.birth_date);
-    if (birthYear) {
-      const bText = 'b. ' + birthYear;
-      const bWidth = fontRegular.widthOfTextAtSize(bText, SUBTITLE_SIZE - 1);
-      page.drawText(bText, {
-        x: CX - bWidth / 2,
-        y: 66,
-        size: SUBTITLE_SIZE - 1,
-        font: fontItalic,
-        color: TEXT_COLOR,
-      });
-    }
-  }
+  // Legend
+  page.drawRectangle({ x: CX - 110, y: 58, width: 10, height: 10, color: segColor(2) });
+  page.drawText('Paternal', { x: CX - 97, y: 59, size: 7, font: fontR, color: DARK });
+  page.drawRectangle({ x: CX + 35, y: 58, width: 10, height: 10, color: segColor(3) });
+  page.drawText('Maternal', { x: CX + 48, y: 59, size: 7, font: fontR, color: DARK });
 
   return pdfDoc.save();
 }

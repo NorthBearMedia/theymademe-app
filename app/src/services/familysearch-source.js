@@ -17,7 +17,19 @@ class FamilySearchSource extends ResearchSource {
   }
 
   isAvailable() {
-    return !!oauth.getStoredToken();
+    // Check stored token synchronously first
+    if (oauth.getStoredToken()) return true;
+    // If no stored token, we'll try to obtain one lazily on first API call
+    // Mark as available — the API layer will auto-obtain an unauthenticated token
+    return true;
+  }
+
+  /**
+   * Whether the current token has full tree access (authenticated via OAuth).
+   * When false, search works but getParents/getSpouses will fail with 401.
+   */
+  hasTreeAccess() {
+    return oauth.isAuthenticated();
   }
 
   async searchPerson(query) {
@@ -34,6 +46,10 @@ class FamilySearchSource extends ResearchSource {
 
   async getPersonSources(personId) {
     return fsApi.getPersonSources(personId);
+  }
+
+  async getSpouses(personId) {
+    return fsApi.getSpouses(personId);
   }
 }
 

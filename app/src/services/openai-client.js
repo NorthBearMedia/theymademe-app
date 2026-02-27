@@ -37,7 +37,7 @@ async function reviewTree(systemPrompt, userPrompt) {
     ],
     response_format: { type: 'json_object' },
     temperature: 0.2,
-    max_tokens: 4000,
+    max_tokens: 8000,
   });
 
   const text = response.choices[0].message.content;

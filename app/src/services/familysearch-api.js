@@ -7,7 +7,11 @@ const API_BASE = config.FS_API_BASE;
 let lastRequestTime = 0;
 
 async function apiRequest(path, options = {}, retryCount = 0) {
-  const tokenData = oauth.getStoredToken();
+  // Use ensureToken() to auto-obtain unauthenticated token if needed
+  let tokenData = oauth.getStoredToken();
+  if (!tokenData) {
+    tokenData = await oauth.ensureToken();
+  }
   if (!tokenData) throw new Error('FamilySearch not connected — please authenticate first');
 
   // Search endpoints use Atom format, everything else uses GEDCOM X
@@ -26,6 +30,22 @@ async function apiRequest(path, options = {}, retryCount = 0) {
   });
 
   if (response.status === 401) {
+    // For search endpoints: try refreshing token once
+    if (path.includes('/search') && retryCount === 0) {
+      const newToken = await oauth.obtainUnauthenticatedToken();
+      if (newToken) {
+        return apiRequest(path, options, retryCount + 1);
+      }
+    }
+    // For tree endpoints (getParents, getPersonDetails, etc.):
+    // Don't clear the token — it may still work for search.
+    // Instead, throw a specific error the engine can catch.
+    const isTreeEndpoint = path.includes('/parents') || path.includes('/spouses') ||
+      (path.includes('/persons/') && !path.includes('/search'));
+    if (isTreeEndpoint) {
+      throw new Error('FamilySearch tree access requires authenticated token — search still available');
+    }
+    // For other 401s, clear and fail
     oauth.clearToken();
     throw new Error('FamilySearch token expired — please reconnect');
   }
@@ -118,17 +138,39 @@ async function searchPerson({
 
     let fatherName = '';
     let motherName = '';
+    let fatherBirthDate = '';
+    let motherBirthDate = '';
+    let fatherBirthPlace = '';
+    let motherBirthPlace = '';
+    let fatherDeathDate = '';
+    let motherDeathDate = '';
+    let fatherDeathPlace = '';
+    let motherDeathPlace = '';
+    let fatherId = '';
+    let motherId = '';
+
     for (const rel of relationships) {
       // The person in the search result is the child
       if (rel.person2?.resourceId === person.id || rel.person2?.resource?.includes(person.id)) {
         const parentId = rel.person1?.resourceId;
         if (parentId && personMap[parentId]) {
-          const parentDisplay = personMap[parentId].display || {};
+          const parentPerson = personMap[parentId];
+          const parentDisplay = parentPerson.display || {};
           const parentGender = (parentDisplay.gender || '').toLowerCase();
           if (parentGender === 'male') {
             fatherName = parentDisplay.name || '';
+            fatherBirthDate = parentDisplay.birthDate || '';
+            fatherBirthPlace = parentDisplay.birthPlace || '';
+            fatherDeathDate = parentDisplay.deathDate || '';
+            fatherDeathPlace = parentDisplay.deathPlace || '';
+            fatherId = parentId;
           } else if (parentGender === 'female') {
             motherName = parentDisplay.name || '';
+            motherBirthDate = parentDisplay.birthDate || '';
+            motherBirthPlace = parentDisplay.birthPlace || '';
+            motherDeathDate = parentDisplay.deathDate || '';
+            motherDeathPlace = parentDisplay.deathPlace || '';
+            motherId = parentId;
           }
         }
       }
@@ -145,6 +187,27 @@ async function searchPerson({
       score: entry.score,
       fatherName,
       motherName,
+      // Extended parent data — used for search-based parent discovery
+      parentData: {
+        father: fatherName ? {
+          id: fatherId,
+          name: fatherName,
+          gender: 'Male',
+          birthDate: fatherBirthDate,
+          birthPlace: fatherBirthPlace,
+          deathDate: fatherDeathDate,
+          deathPlace: fatherDeathPlace,
+        } : null,
+        mother: motherName ? {
+          id: motherId,
+          name: motherName,
+          gender: 'Female',
+          birthDate: motherBirthDate,
+          birthPlace: motherBirthPlace,
+          deathDate: motherDeathDate,
+          deathPlace: motherDeathPlace,
+        } : null,
+      },
       // Full data for scoring
       facts: person.facts || [],
       names: person.names || [],
@@ -227,6 +290,68 @@ async function getParents(personId) {
   }
 }
 
+// Get spouses for a person — returns array of spouse info objects
+// Useful for marriage record triangulation (finding mother via father's spouse)
+async function getSpouses(personId) {
+  try {
+    const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}/spouses`);
+
+    // Build a person map from the response
+    const personMap = {};
+    if (data.persons) {
+      for (const p of data.persons) {
+        personMap[p.id] = p;
+      }
+    }
+
+    const spouses = [];
+
+    // Parse couple relationships
+    const relationships = data.childAndParentsRelationships || data.relationships || [];
+    // Also check for direct couple relationships
+    const coupleRels = (data.relationships || []).filter(r =>
+      r.type === 'http://gedcomx.org/Couple'
+    );
+
+    for (const rel of coupleRels) {
+      // Find the spouse (the person that isn't our input person)
+      const person1Id = rel.person1?.resourceId;
+      const person2Id = rel.person2?.resourceId;
+      const spouseId = person1Id === personId ? person2Id : person1Id;
+
+      if (spouseId && personMap[spouseId]) {
+        const person = personMap[spouseId];
+        const d = person.display || {};
+        spouses.push({
+          id: person.id,
+          name: d.name || 'Unknown',
+          gender: d.gender || 'Unknown',
+          birthDate: d.birthDate || '',
+          birthPlace: d.birthPlace || '',
+          deathDate: d.deathDate || '',
+          deathPlace: d.deathPlace || '',
+          facts: person.facts || [],
+          raw: person,
+          // Extract marriage facts from the relationship
+          marriageFacts: (rel.facts || []).map(f => ({
+            type: f.type || '',
+            date: f.date?.original || '',
+            place: f.place?.original || '',
+          })),
+        });
+      }
+    }
+
+    return spouses;
+  } catch (err) {
+    // Spouses endpoint may 404 if no spouses are recorded
+    if (err.message.includes('404')) {
+      return [];
+    }
+    throw err;
+  }
+}
+
 // Get detailed person information
 async function getPersonDetails(personId) {
   const data = await rateLimitedApiRequest(`/platform/tree/persons/${personId}`);
@@ -280,7 +405,11 @@ async function getPersonSources(personId) {
     }
 
     return [];
-  } catch {
+  } catch (err) {
+    // Re-throw auth errors so callers can detect auth-unavailable state
+    if (err.message && (err.message.includes('authenticated token') || err.message.includes('401'))) {
+      throw err;
+    }
     return [];
   }
 }
@@ -326,6 +455,7 @@ async function extractFactsByType(personId) {
 module.exports = {
   searchPerson,
   getParents,
+  getSpouses,
   getPersonDetails,
   getPersonSources,
   extractFactsByType,

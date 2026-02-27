@@ -26,7 +26,7 @@ router.get('/pdf/:id', requireAuth, async (req, res) => {
     }));
 
     const familyName = job.customer_name || '';
-    const pdfBytes = await generateFanChartPdf(pdfAncestors, familyName, job.generations || 4);
+    const pdfBytes = await generateFanChartPdf(pdfAncestors, familyName, job.generations || 6);
 
     const filename = `${(job.customer_name || 'family-tree').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '-')}-family-tree.pdf`;
 
@@ -58,7 +58,7 @@ router.get('/pdf/:id/preview', requireAuth, async (req, res) => {
     }));
 
     const familyName = job.customer_name || '';
-    const pdfBytes = await generateFanChartPdf(pdfAncestors, familyName, job.generations || 4);
+    const pdfBytes = await generateFanChartPdf(pdfAncestors, familyName, job.generations || 6);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline');
