@@ -330,6 +330,18 @@ function sanitizePlaceName(place) {
     'heorotfordscir': 'Hertfordshire',
     'dorseteschyre': 'Dorset',
     'ratae coritanorum': 'Leicestershire',
+    // Additional forms found in FS Beta search results (Feb 2026)
+    'sūþrīge': 'Surrey',
+    'suþrige': 'Surrey',
+    'wæringscīr': 'Warwickshire',
+    'waeringscir': 'Warwickshire',
+    'legeceasterscir': 'Cheshire',
+    'legaceasterscir': 'Cheshire',
+    'middleseaxon': 'Middlesex',
+    'lancasterscir': 'Lancashire',
+    'cumberland': 'Cumberland',
+    'cornwealas': 'Cornwall',
+    'norðhamtūnscīr': 'Northamptonshire',
   };
   // Replace Old English county names (case insensitive)
   const parts = cleaned.split(',').map(p => p.trim());
@@ -3336,13 +3348,44 @@ class ResearchEngine {
         const np = parseNameParts(rec.name);
         if (!np.givenName && !np.surname) return null;
 
-        const query = { givenName: np.givenName || '', surname: np.surname || '', count: 5 };
+        const query = { givenName: np.givenName || '', surname: np.surname || '', count: 10 };
         if (rec.birth_date) query.birthDate = formatDateForApi(rec.birth_date);
         if (rec.birth_place) query.birthPlace = rec.birth_place;
+
+        // ── ESTIMATE BIRTH YEAR FROM CHILD ──
+        // When customer data has no birth date, estimate from the child's birth year.
+        // This dramatically improves search accuracy (e.g. "Frederick Hunt Derby" returns
+        // the wrong person, but "Frederick Hunt Derby ~1902" returns the correct one).
+        let estimatedBirthYear = null;
+        if (!query.birthDate && asc >= 2) {
+          const childAsc = Math.floor(asc / 2);
+          const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+          if (childRec) {
+            const childYear = normalizeDate(childRec.birth_date)?.year;
+            if (childYear) {
+              estimatedBirthYear = childYear - 28;
+              query.birthDate = String(estimatedBirthYear);
+              console.log(`[Engine] asc#${asc}: no birth date, estimated ~${estimatedBirthYear} from child asc#${childAsc} (b.${childYear})`);
+            }
+          }
+        }
+
+        const recBirthYear = normalizeDate(rec.birth_date)?.year;
+
+        // Determine reference place for geographic checks (ancestor's own or child's)
+        let refPlace = rec.birth_place || '';
+        if (!refPlace && asc >= 2) {
+          const childAsc = Math.floor(asc / 2);
+          const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
+          if (childRec) refPlace = childRec.birth_place || '';
+        }
 
         try {
           const results = await this.fsSource.searchPerson(query);
           console.log(`[Engine] FS search for asc#${asc} (${rec.name}): ${results.length} candidates`);
+
+          // ── SCORE ALL CANDIDATES instead of accepting first match ──
+          const passingCandidates = [];
 
           for (const cand of results) {
             const place = sanitizePlaceName(cand.birthPlace || '');
@@ -3364,13 +3407,11 @@ class ResearchEngine {
               }
             }
 
-            const recBirthYear = normalizeDate(rec.birth_date)?.year;
             const candYear = normalizeDate(cand.birthDate)?.year;
             if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > 5) continue;
 
             // If WE know the birth year but the candidate has none, reject for
             // post-1837 people (civil registration era — records should have dates).
-            // This prevents matching modern people to undated Finnish/Swedish stubs.
             if (recBirthYear && recBirthYear >= 1837 && !candYear) {
               console.log(`[Engine]     → rejected: known b.${recBirthYear} but candidate has no birth date`);
               continue;
@@ -3383,37 +3424,42 @@ class ResearchEngine {
             }
 
             // ── GENERATIONAL ERA CHECK ──
-            // When customer provides no birth date, estimate from subject's birth year and generation.
-            // Expected birth ≈ subject_birth - (generation * 28), tolerance ±35 years.
-            if (!recBirthYear && candYear && rec.generation >= 1) {
+            // When customer provides no birth date, use estimated year or subject-generation estimate.
+            const effectiveExpectedYear = estimatedBirthYear || (rec.generation >= 1 ? (() => {
               const subjectRec = this.db.getAncestorByAscNumber(this.jobId, 1);
-              const subjectYear = subjectRec ? normalizeDate(subjectRec.birth_date)?.year : null;
-              if (subjectYear) {
-                const expectedYear = subjectYear - (rec.generation * 28);
-                if (Math.abs(candYear - expectedYear) > 35) {
-                  console.log(`[Engine]     → rejected: candidate b.${candYear}, expected ~${expectedYear} for gen ${rec.generation} (±35yr)`);
-                  continue;
-                }
+              const sy = subjectRec ? normalizeDate(subjectRec.birth_date)?.year : null;
+              return sy ? sy - (rec.generation * 28) : null;
+            })() : null);
+
+            if (!recBirthYear && candYear && effectiveExpectedYear) {
+              if (Math.abs(candYear - effectiveExpectedYear) > 35) {
+                console.log(`[Engine]     → rejected: candidate b.${candYear}, expected ~${effectiveExpectedYear} for gen ${rec.generation} (±35yr)`);
+                continue;
+              }
+            }
+
+            // ── REJECT DATELESS STUBS for estimated-era searches ──
+            // When WE don't have a birth year AND the candidate also has none,
+            // the candidate is likely a stub record. For common surnames, this is very risky.
+            if (!recBirthYear && !candYear && estimatedBirthYear) {
+              if (isCommonSurname(np.surname)) {
+                console.log(`[Engine]     → rejected: no birth date on either side + common surname '${np.surname}' = too risky`);
+                continue;
+              }
+              // For uncommon surnames, allow but note the risk
+              if (!place) {
+                console.log(`[Engine]     → rejected: stub record (no birth date, no birth place) for estimated-era search`);
+                continue;
               }
             }
 
             // ── GEOGRAPHIC PROXIMITY CHECK ──
-            // Compare candidate location against ancestor's own birth_place,
-            // or fall back to the CHILD's birth_place (Ahnentafel: child = floor(asc/2))
-            let refPlace = rec.birth_place || '';
-            if (!refPlace && asc >= 2) {
-              const childAsc = Math.floor(asc / 2);
-              const childRec = this.db.getAncestorByAscNumber(this.jobId, childAsc);
-              if (childRec) refPlace = childRec.birth_place || '';
-            }
             if (refPlace && place) {
               const prox = placeProximity(place, refPlace);
               if (prox.proximity === 'distant') {
                 console.log(`[Engine]     → rejected: distant location (${prox.county1 || place} vs ref ${prox.county2 || refPlace})`);
                 continue;
               }
-              // If we can resolve the reference but NOT the candidate, be cautious
-              // (candidate may be from an unrecognised place — don't blindly accept)
               if (prox.proximity === null && prox.county2 && !prox.county1) {
                 console.log(`[Engine]     → rejected: candidate county unresolvable (${place}) but customer is ${prox.county2}`);
                 continue;
@@ -3424,19 +3470,17 @@ class ResearchEngine {
             }
 
             // ── COMMON SURNAME SOURCE CHECK ──
-            // For common surnames (Hunt, Smith, etc.), require at least 2 primary sources
-            // before linking Customer Data — prevents linking to wrong family entirely.
+            let sourceScore = 0;
             if (isCommonSurname(np.surname)) {
               try {
                 const srcVerify = await this.verifyParentSources(cand.id);
                 if (srcVerify.authFailed) {
-                  // Can't verify sources — for common surnames, still try to link
-                  // but rely on the name + location + year matching
                   console.log(`[Engine]     → common surname source check skipped (auth unavailable), proceeding with name/location match`);
                 } else if (srcVerify.primaryCount < 2) {
                   console.log(`[Engine]     → rejected: common surname '${np.surname}' with only ${srcVerify.primaryCount} primary sources (need 2+)`);
                   continue;
                 } else {
+                  sourceScore = srcVerify.primaryCount;
                   console.log(`[Engine]     → common surname check passed: ${srcVerify.primaryCount} primary sources`);
                 }
               } catch (e) {
@@ -3445,13 +3489,53 @@ class ResearchEngine {
               }
             }
 
-            console.log(`[Engine]   ✓ asc#${asc} matched: ${cand.name} (${cand.id})`);
-            this.db.updateAncestorByAscNumber(this.jobId, asc, {
-              fs_person_id: cand.id,
-              verification_notes: (rec.verification_notes || 'Customer-provided data') + ` | FS linked: ${cand.id}`,
-            });
-            return cand.id;
+            // ── SCORE THIS CANDIDATE ──
+            let score = 50; // base score for passing all filters
+            // Birth year proximity bonus
+            if (candYear && effectiveExpectedYear) {
+              const yearDiff = Math.abs(candYear - effectiveExpectedYear);
+              score += Math.max(0, 30 - yearDiff * 3); // up to +30 for exact match
+            }
+            // Having a birth date at all (not a stub)
+            if (candYear) score += 15;
+            // Having a birth place
+            if (place) score += 10;
+            // Location match quality
+            if (refPlace && place) {
+              const prox = placeProximity(place, refPlace);
+              if (prox.proximity === 'same') score += 20;
+              else if (prox.proximity === 'nearby') score += 10;
+            }
+            // Source count bonus
+            score += sourceScore * 5;
+            // Parent data available bonus (useful for downstream tree traversal)
+            if (cand.parentData && (cand.parentData.father || cand.parentData.mother)) score += 10;
+
+            console.log(`[Engine]     → passed filters, score: ${score}`);
+            passingCandidates.push({ cand, score, place });
           }
+
+          // Pick the best candidate
+          if (passingCandidates.length === 0) {
+            console.log(`[Engine] asc#${asc}: no candidates passed all filters`);
+            return null;
+          }
+
+          passingCandidates.sort((a, b) => b.score - a.score);
+          const best = passingCandidates[0];
+
+          // If multiple candidates passed and scores are close, log a warning
+          if (passingCandidates.length > 1) {
+            const second = passingCandidates[1];
+            console.log(`[Engine] asc#${asc}: ${passingCandidates.length} candidates passed. Best: ${best.cand.name} (${best.score}), Runner-up: ${second.cand.name} (${second.score})`);
+          }
+
+          console.log(`[Engine]   ✓ asc#${asc} matched: ${best.cand.name} (${best.cand.id}) [score: ${best.score}]`);
+          this.db.updateAncestorByAscNumber(this.jobId, asc, {
+            fs_person_id: best.cand.id,
+            verification_notes: (rec.verification_notes || 'Customer-provided data') + ` | FS linked: ${best.cand.id}`,
+          });
+          return best.cand.id;
         } catch (err) {
           console.log(`[Engine] FS search error for asc#${asc}: ${err.message}`);
         }
