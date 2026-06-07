@@ -5139,6 +5139,15 @@ class ResearchEngine {
           confidenceScore = Math.min(confidenceScore, 35);
           confidenceLevel = this.getConfidenceLevel(confidenceScore);
         }
+        // No documentary source records for someone born in the civil-registration
+        // era (1837+). FamilySearch tree facts are LEADS, not proof, so an
+        // unsourced 19th/20th-century match must not be auto-accepted as
+        // Probable/Verified — cap at "Possible" (74) for manual review.
+        const gateBirthYear = normalizeDate(rec.birth_date)?.year || null;
+        if (!hasSourceRecords && rec.fs_person_id && (!gateBirthYear || gateBirthYear >= 1837)) {
+          confidenceScore = Math.min(confidenceScore, 74);
+          confidenceLevel = this.getConfidenceLevel(confidenceScore);
+        }
 
         // Auto-accept only at 75%+ (Probable or above) — Possible stays for manual review
         const autoAccepted = confidenceScore >= 75 ? 1 : 0;
