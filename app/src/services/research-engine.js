@@ -1,5 +1,6 @@
 const fsApi = require('./familysearch-api');
 const { districtMatches } = require('./freebmd-client'); // used by legacy methods
+const { RULES, RULES_VERSION, RULES_HASH } = require('../rules/genealogy-rules');
 const { resolveCounty, countyProximity, placeProximity } = require('./county-data');
 
 // ─── Utility Functions ───────────────────────────────────────────────
@@ -589,16 +590,8 @@ function scoreSourceRecords(sources) {
   const evidenceChain = [];
   const categoryCounts = {};
 
-  // Points and caps per category
-  const CATEGORY_POINTS = {
-    'Civil Registration': { points: 15, maxRecords: 3 }, // one per subType (birth/marriage/death)
-    'Census': { points: 12, maxRecords: 99 }, // no cap
-    'Parish Register': { points: 10, maxRecords: 2 },
-    '1939 Register': { points: 10, maxRecords: 1 },
-    'Military': { points: 8, maxRecords: 2 },
-    'Probate': { points: 8, maxRecords: 1 },
-    'Other': { points: 3, maxRecords: 3 },
-  };
+  // Points and caps per category — defined in the master rulebook.
+  const CATEGORY_POINTS = RULES.sources.categoryPoints;
 
   for (const [key, { source, classification }] of byKey) {
     const cat = classification.category;
@@ -690,18 +683,19 @@ function scorePersonFacts(facts) {
     ? [`Facts: ${noteItems.join(', ')}`]
     : ['Facts: none recorded'];
 
-  return { points: Math.min(points, 33), notes };
+  return { points: Math.min(points, RULES.confidence.sectionCaps.facts), notes };
 }
 
-// Section 5 mapping: total points → percentage
+// Section 5 mapping: total points → percentage. Thresholds come from the
+// master rulebook (RULES.confidence) so the engine and the rules never drift.
 function computeFinalScore(points) {
-  // Tightened thresholds — require stronger evidence for higher confidence
-  if (points >= 60) return Math.min(95, 90 + Math.min(5, points - 60));      // Verified: 60+ pts
-  if (points >= 45) return Math.min(89, 75 + Math.min(14, points - 45));      // Probable: 45-59 pts
-  if (points >= 25) return Math.min(74, 50 + Math.min(24, points - 25));      // Possible: 25-44 pts
-  if (points >= 10) return Math.min(49, 30 + Math.min(19, points - 10));      // Suggested: 10-24 pts
-  if (points <= -10) return 0;                                                 // Heavily penalized
-  return 25;
+  const c = RULES.confidence;
+  if (points >= c.verifiedMinPoints) return Math.min(95, c.levelCutoffs.verified + Math.min(5, points - c.verifiedMinPoints));   // Verified
+  if (points >= c.probableMinPoints) return Math.min(89, c.levelCutoffs.probable + Math.min(14, points - c.probableMinPoints));  // Probable
+  if (points >= c.possibleMinPoints) return Math.min(74, c.levelCutoffs.possible + Math.min(24, points - c.possibleMinPoints));  // Possible
+  if (points >= c.suggestedMinPoints) return Math.min(49, 30 + Math.min(19, points - c.suggestedMinPoints));                     // Suggested
+  if (points <= c.heavyPenaltyMaxPoints) return 0;                                                                               // Heavily penalized
+  return c.defaultPercent;
 }
 
 // ─── Notes Parser ────────────────────────────────────────────────────
@@ -935,10 +929,11 @@ class ResearchEngine {
   }
 
   getConfidenceLevel(score) {
-    if (score >= 90) return 'Verified';
-    if (score >= 75) return 'Probable';
-    if (score >= 50) return 'Possible';
-    if (score >= 25) return 'Suggested';
+    const L = RULES.confidence.levelCutoffs;
+    if (score >= L.verified) return 'Verified';
+    if (score >= L.probable) return 'Probable';
+    if (score >= L.possible) return 'Possible';
+    if (score >= L.suggested) return 'Suggested';
     return 'Not Found';
   }
 
@@ -1045,7 +1040,7 @@ class ResearchEngine {
     }
 
     // Strategy 3: Fallback to default (28 for fathers, 26 for mothers)
-    return childBirthYear - (isFather ? 28 : 26);
+    return childBirthYear - (isFather ? RULES.estimation.fatherGapYears : RULES.estimation.motherGapYears);
   }
 
   // ─── Section 3: Family Context Scoring ──────────────────────────────
@@ -1087,18 +1082,18 @@ class ResearchEngine {
 
       if (isFather && ancestorParts.surname && childParts.surname) {
         if (ancestorParts.surname.toLowerCase() === childParts.surname.toLowerCase()) {
-          points += 5;
-          notes.push(`Surname: ${ancestorParts.surname} matches child ${childParts.surname} (+5)`);
+          points += RULES.surname.fatherSurnameMatchBonus;
+          notes.push(`Surname: ${ancestorParts.surname} matches child ${childParts.surname} (+${RULES.surname.fatherSurnameMatchBonus})`);
         } else {
           // Father surname MUST match child's — strong penalty
-          points -= 15;
-          notes.push(`REJECT: Father surname ${ancestorParts.surname} ≠ child ${childParts.surname} (-15)`);
+          points += RULES.surname.fatherSurnameMismatchPenalty;
+          notes.push(`REJECT: Father surname ${ancestorParts.surname} ≠ child ${childParts.surname} (${RULES.surname.fatherSurnameMismatchPenalty})`);
         }
       } else if (!isFather && ancestorParts.surname) {
         // Mother — maiden name match is worth less (less certain further back)
         // We can check if the child record has a known mother maiden name
-        points += 3;
-        notes.push(`Maiden name: ${ancestorParts.surname} (+3)`);
+        points += RULES.surname.motherMaidenPresentBonus;
+        notes.push(`Maiden name: ${ancestorParts.surname} (+${RULES.surname.motherMaidenPresentBonus})`);
       }
     } else {
       notes.push(`${relationship} of asc#${childAsc} (child not yet scored, +0)`);
@@ -1108,17 +1103,17 @@ class ResearchEngine {
     const rawData = ancestorRecord.raw_data || {};
     const discoveryMethod = rawData.discoveryMethod || '';
     if (discoveryMethod === 'tree_parents_verified') {
-      points += 8;
-      notes.push(`Discovery: tree_parents_verified (+8)`);
+      points += RULES.discovery.treeParentsVerifiedBonus;
+      notes.push(`Discovery: tree_parents_verified (+${RULES.discovery.treeParentsVerifiedBonus})`);
     } else if (discoveryMethod === 'direct_search_verified') {
-      points += 8;
-      notes.push(`Discovery: direct_search_verified (+8)`);
+      points += RULES.discovery.directSearchVerifiedBonus;
+      notes.push(`Discovery: direct_search_verified (+${RULES.discovery.directSearchVerifiedBonus})`);
     } else if (discoveryMethod === 'tree_parents_unverified') {
-      points += 3;
-      notes.push(`Discovery: tree_parents_unverified (+3)`);
+      points += RULES.discovery.treeParentsUnverifiedBonus;
+      notes.push(`Discovery: tree_parents_unverified (+${RULES.discovery.treeParentsUnverifiedBonus})`);
     }
 
-    return { points: Math.min(points, 23), notes };
+    return { points: Math.min(points, RULES.confidence.sectionCaps.family), notes };
   }
 
   // ─── Section 4: Location & Date Plausibility Scoring ────────────────
@@ -1205,25 +1200,27 @@ class ResearchEngine {
       if (resolved) childPlace.county = resolved;
     }
 
-    // County match — now uses full proximity check (same, adjacent, distant)
+    // County match — now uses full proximity check (same, adjacent, distant).
+    // All point values come from the master rulebook (RULES.location).
+    const loc = RULES.location;
     if (ancestorPlace.county && childPlace.county) {
       const prox = countyProximity(ancestorPlace.county, childPlace.county);
       if (prox === 'same') {
-        points += 5;
-        notes.push(`Location: birth county ${ancestorPlace.county} matches child's county (+5)`);
+        points += loc.sameCountyPoints;
+        notes.push(`Location: birth county ${ancestorPlace.county} matches child's county (+${loc.sameCountyPoints})`);
 
         // Town match (bonus on top of county)
         if (ancestorPlace.town && childPlace.town && ancestorPlace.town === childPlace.town) {
-          points += 3;
-          notes.push(`Location: birth town ${ancestorPlace.town} matches child's town (+3)`);
+          points += loc.sameTownBonus;
+          notes.push(`Location: birth town ${ancestorPlace.town} matches child's town (+${loc.sameTownBonus})`);
         }
       } else if (prox === 'adjacent') {
-        points += 2;
-        notes.push(`Location: adjacent county ${ancestorPlace.county} ↔ ${childPlace.county} (+2)`);
+        points += loc.adjacentCountyPoints;
+        notes.push(`Location: adjacent county ${ancestorPlace.county} ↔ ${childPlace.county} (+${loc.adjacentCountyPoints})`);
       } else {
         // Distant county — significant penalty
-        points -= 15;
-        notes.push(`Location: DISTANT county ${ancestorPlace.county} vs ${childPlace.county} — unlikely relative (-15)`);
+        points += loc.distantCountyPenalty;
+        notes.push(`Location: DISTANT county ${ancestorPlace.county} vs ${childPlace.county} — unlikely relative (${loc.distantCountyPenalty})`);
       }
     } else if (!ancestorPlace.county && !childPlace.county) {
       notes.push('Location: no birth counties to compare');
@@ -1236,24 +1233,26 @@ class ResearchEngine {
     const childYear = normalizeDate(child.birthDate || '')?.year;
 
     if (ancestorYear && childYear) {
+      // Age-gap values come from the master rulebook (RULES.ageGap).
+      const ag = RULES.ageGap;
       const gap = childYear - ancestorYear;
       if (gap < 0) {
         // Parent born AFTER child — impossible
-        points -= 50;
-        notes.push(`REJECT: parent born ${Math.abs(gap)}yrs AFTER child — impossible (-50)`);
-      } else if (gap < 15 || gap > 55) {
+        points += ag.parentAfterChildPenalty;
+        notes.push(`REJECT: parent born ${Math.abs(gap)}yrs AFTER child — impossible (${ag.parentAfterChildPenalty})`);
+      } else if (gap < ag.scoringPenaltyBelowYears || gap > ag.hardMaxYears) {
         // Implausible generation gap (e.g. 158 years)
-        points -= 30;
-        notes.push(`REJECT: ${gap}yr generation gap — implausible (-30)`);
-      } else if (gap >= 18 && gap <= 45) {
-        points += 5;
-        notes.push(`Age: born ~${gap}yrs before child — plausible (+5)`);
-        if (gap >= 22 && gap <= 35) {
-          points += 2;
-          notes.push(`Age: sweet spot (+2)`);
+        points += ag.implausibleGapPenalty;
+        notes.push(`REJECT: ${gap}yr generation gap — implausible (${ag.implausibleGapPenalty})`);
+      } else if (gap >= ag.plausibleMinYears && gap <= ag.plausibleMaxYears) {
+        points += ag.plausiblePoints;
+        notes.push(`Age: born ~${gap}yrs before child — plausible (+${ag.plausiblePoints})`);
+        if (gap >= ag.sweetSpotMinYears && gap <= ag.sweetSpotMaxYears) {
+          points += ag.sweetSpotPoints;
+          notes.push(`Age: sweet spot (+${ag.sweetSpotPoints})`);
         }
       } else {
-        // 15-17 or 46-55 — unusual but not impossible
+        // unusual but not impossible
         notes.push(`Age: born ~${gap}yrs before child — unusual but possible`);
       }
     } else {
@@ -1272,15 +1271,15 @@ class ResearchEngine {
         if (other && otherPlaceStr) {
           const otherPlace = parsePlaceParts(otherPlaceStr.toLowerCase());
           if (otherPlace.county === ancestorPlace.county) {
-            points += 2;
-            notes.push(`Location: county matches ${other.name} in same generation (+2)`);
+            points += loc.sameGenerationCountyBonus;
+            notes.push(`Location: county matches ${other.name} in same generation (+${loc.sameGenerationCountyBonus})`);
             break; // Only award once
           }
         }
       }
     }
 
-    return { points: Math.min(points, 17), notes };
+    return { points: Math.min(points, RULES.confidence.sectionCaps.location), notes };
   }
 
   // Check if two names are similar enough
@@ -1471,8 +1470,8 @@ class ResearchEngine {
       let primaryCount = 0;
       let totalPoints = 0;
 
-      // Primary source categories (strong evidence)
-      const PRIMARY_CATS = new Set(['Civil Registration', 'Census', '1939 Register', 'Parish Register']);
+      // Primary source categories (strong evidence) — from the master rulebook.
+      const PRIMARY_CATS = new Set(RULES.sources.primaryCategories);
 
       for (const src of sources) {
         const cls = classifySourceRecord(src.title);
@@ -1480,16 +1479,9 @@ class ResearchEngine {
         if (PRIMARY_CATS.has(cls.category)) {
           primaryCount++;
         }
-        // Points per category
-        switch (cls.category) {
-          case 'Civil Registration': totalPoints += 15; break;
-          case 'Census': totalPoints += 12; break;
-          case '1939 Register': totalPoints += 10; break;
-          case 'Parish Register': totalPoints += 10; break;
-          case 'Military': totalPoints += 8; break;
-          case 'Probate': totalPoints += 8; break;
-          default: totalPoints += 3; break;
-        }
+        // Points per category — from the master rulebook.
+        totalPoints += (RULES.sources.categoryPoints[cls.category]?.points)
+          ?? RULES.sources.categoryPoints['Other'].points;
       }
 
       return { sources, primaryCount, totalPoints, classifications, authFailed: false };
@@ -3352,6 +3344,7 @@ class ResearchEngine {
       console.log(`[Engine] FS-Primary Engine — ${this.generations} generations`);
       console.log(`[Engine] Subject: ${this.inputData.given_name} ${this.inputData.surname}`);
       console.log(`[Engine] FamilySearch: ${!!this.fsSource}`);
+      console.log(`[Engine] Rulebook: master genealogy rules v${RULES_VERSION} (ref ${RULES_HASH}) — human-owned, enforced this run`);
       console.log(`[Engine] ════════════════════════════════════════════════\n`);
 
       // ── Phase 1: Link customer-provided ancestors to FS ──
@@ -3439,7 +3432,8 @@ class ResearchEngine {
 
             const candYear = normalizeDate(cand.birthDate)?.year;
             // Wider tolerance for gen 3+ (great-grandparents and beyond): ±8 years
-            const yearTolerance = rec.generation >= 3 ? 8 : 5;
+            const yearTolerance = rec.generation >= RULES.birthYearTolerance.olderGenerationFromGen
+              ? RULES.birthYearTolerance.olderGenerationYears : RULES.birthYearTolerance.defaultYears;
             if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > yearTolerance) continue;
 
             // If WE know the birth year but the candidate has none, reject for
@@ -3530,37 +3524,38 @@ class ResearchEngine {
               }
             }
 
-            // ── SCORE THIS CANDIDATE ──
-            let score = 50; // base score for passing all filters
+            // ── SCORE THIS CANDIDATE ── (all weights from the master rulebook)
+            const cs = RULES.candidateScoring;
+            let score = cs.base; // base score for passing all filters
             // Birth year proximity bonus.
             // Prefer the customer's STATED birth year over a generation estimate:
             // an exact match to what the customer actually told us is the
-            // strongest identity signal we have, so weight it the most (up to +40).
+            // strongest identity signal we have, so weight it the most.
             if (candYear && recBirthYear) {
               const yearDiff = Math.abs(candYear - recBirthYear);
-              score += Math.max(0, 40 - yearDiff * 5); // up to +40 for matching customer-stated year
+              score += Math.max(0, cs.customerYearExactBonus - yearDiff * cs.customerYearPenaltyPerYear);
             } else if (candYear && effectiveExpectedYear) {
               const yearDiff = Math.abs(candYear - effectiveExpectedYear);
-              score += Math.max(0, 30 - yearDiff * 3); // up to +30 for matching the estimate
+              score += Math.max(0, cs.estimateYearBonus - yearDiff * cs.estimateYearPenaltyPerYear);
             }
             // Having a birth date at all (not a stub)
-            if (candYear) score += 15;
+            if (candYear) score += cs.hasBirthDateBonus;
             // Having a birth place
-            if (place) score += 10;
+            if (place) score += cs.hasBirthPlaceBonus;
             // Location match quality
             if (refPlace && place) {
               const prox = placeProximity(place, refPlace);
-              if (prox.proximity === 'same') score += 20;
-              else if (prox.proximity === 'nearby') score += 10;
+              if (prox.proximity === 'same') score += cs.sameLocationBonus;
+              else if (prox.proximity === 'nearby') score += cs.nearbyLocationBonus;
             }
-            // Source count bonus — CAPPED at +15 so a wrong person who simply has
-            // many attached records cannot out-rank a correct identity/date match.
-            score += Math.min(sourceScore, 3) * 5;
+            // Source count bonus — CAPPED so a wrong person who simply has many
+            // attached records cannot out-rank a correct identity/date match.
+            score += Math.min(sourceScore, cs.sourceBonusCapPrimaries) * cs.sourceBonusPerPrimary;
             // FamilySearch's own relevance rank — a useful tiebreaker between
-            // otherwise-similar candidates that the engine previously ignored.
-            score += Math.min(15, Math.round((cand.score || 0) * 0.1));
+            // otherwise-similar candidates.
+            score += Math.min(cs.fsRelevanceCap, Math.round((cand.score || 0) * cs.fsRelevanceFactor));
             // Parent data available bonus (useful for downstream tree traversal)
-            if (cand.parentData && (cand.parentData.father || cand.parentData.mother)) score += 10;
+            if (cand.parentData && (cand.parentData.father || cand.parentData.mother)) score += cs.parentDataBonus;
 
             console.log(`[Engine]     → passed filters, score: ${score}`);
             passingCandidates.push({ cand, score, place });
@@ -5129,28 +5124,28 @@ class ResearchEngine {
         const hasBirthYear = !!(rec.birth_date);
         const hasSourceRecords = sourceResult.points > 0;
 
+        // Confidence caps come from the master rulebook (RULES.gates).
         if (!hasSurname) {
           // No surname (e.g. just "Sarah") — insufficient to verify identity
-          confidenceScore = Math.min(confidenceScore, 49);
+          confidenceScore = Math.min(confidenceScore, RULES.gates.noSurnameMaxPercent);
           confidenceLevel = this.getConfidenceLevel(confidenceScore);
         }
         if (!hasSurname && !hasBirthYear && !hasLocation) {
           // Virtually no identifying data
-          confidenceScore = Math.min(confidenceScore, 35);
+          confidenceScore = Math.min(confidenceScore, RULES.gates.noIdentityMaxPercent);
           confidenceLevel = this.getConfidenceLevel(confidenceScore);
         }
         // No documentary source records for someone born in the civil-registration
-        // era (1837+). FamilySearch tree facts are LEADS, not proof, so an
-        // unsourced 19th/20th-century match must not be auto-accepted as
-        // Probable/Verified — cap at "Possible" (74) for manual review.
+        // era. FamilySearch tree facts are LEADS, not proof, so an unsourced
+        // 19th/20th-century match must not be auto-accepted as Probable/Verified.
         const gateBirthYear = normalizeDate(rec.birth_date)?.year || null;
-        if (!hasSourceRecords && rec.fs_person_id && (!gateBirthYear || gateBirthYear >= 1837)) {
-          confidenceScore = Math.min(confidenceScore, 74);
+        if (!hasSourceRecords && rec.fs_person_id && (!gateBirthYear || gateBirthYear >= RULES.gates.civilRegistrationYear)) {
+          confidenceScore = Math.min(confidenceScore, RULES.gates.unsourcedCivilEraMaxPercent);
           confidenceLevel = this.getConfidenceLevel(confidenceScore);
         }
 
-        // Auto-accept only at 75%+ (Probable or above) — Possible stays for manual review
-        const autoAccepted = confidenceScore >= 75 ? 1 : 0;
+        // Auto-accept only at the rulebook's auto-accept threshold — below it stays for manual review
+        const autoAccepted = confidenceScore >= RULES.confidence.autoAcceptPercent ? 1 : 0;
 
         // Detect missing info
         const missingInfo = [];

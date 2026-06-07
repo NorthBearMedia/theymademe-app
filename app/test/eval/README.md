@@ -16,7 +16,12 @@ node test/eval/smoke.js                 # proves the engine runs end-to-end offl
 node test/eval/run.js hunt-derby        # clean 3-generation family  (expect 100%)
 node test/eval/run.js ambiguous-derby   # adversarial: two same-name fathers
 node test/eval/ai-consensus.test.js     # unit test for AI auto-correction consensus
+node test/eval/confidence-gating.test.js # unsourced civil-era ancestors capped
+node test/eval/rules-governance.test.js  # master rulebook is frozen + referenced
 ```
+
+The master rulebook (single source of truth for all thresholds) lives at
+`app/src/rules/genealogy-rules.js` with `app/src/rules/MASTER-RULES.md`.
 
 Each `run.js` prints a per-slot CORRECT / WRONG / MISSING table plus
 precision / recall and a machine-readable `RESULT {...}` line for diffing runs.

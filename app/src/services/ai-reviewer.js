@@ -14,6 +14,7 @@ const db = require('./database');
 const openaiClient = require('./openai-client');
 const claudeClient = require('./claude-client');
 const { FreeBMDClient } = require('./freebmd-client');
+const { RULES, RULES_TEXT, RULES_VERSION, RULES_HASH } = require('../rules/genealogy-rules');
 
 const freebmd = new FreeBMDClient();
 
@@ -288,6 +289,9 @@ function buildAIInput(jobId) {
 // ─── System Prompt ──────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are an expert genealogist AI reviewer working for "They Made Me", a professional genealogy research service based in the UK.
+
+## MASTER RULES — AUTHORITATIVE & HUMAN-OWNED (apply these exactly; do not invent looser ones)
+${RULES_TEXT}
 
 ## THE BIG PICTURE
 
@@ -755,17 +759,19 @@ function applyAICorrections(jobId, gptResult, claudeResult) {
     const sameDir = gptAdj !== 0 && claudeAdj !== 0 && Math.sign(gptAdj) === Math.sign(claudeAdj);
     let avgAdj = Math.round((gptAdj + claudeAdj) / 2);
 
-    // Decide whether to auto-apply — ASYMMETRIC by direction:
+    // Decide whether to auto-apply — ASYMMETRIC by direction (thresholds from
+    // the master rulebook, RULES.autoCorrection):
     //  - DOWNGRADES (more skepticism) are the SAFE direction. Auto-apply when
-    //    both models agree on a downgrade, but cap a single auto-downgrade at
-    //    -40 so one review can't nuke a score on a shared hallucination.
+    //    both models agree on a downgrade, but cap a single auto-downgrade so
+    //    one review can't nuke a score on a shared hallucination.
     //  - UPGRADES inflate confidence in a possibly-wrong match, so only tiny,
     //    tightly-agreed boosts auto-apply; anything larger needs admin sign-off.
+    const ac = RULES.autoCorrection;
     let autoApply = false;
-    if (sameDir && avgAdj < 0 && adjDiff <= 10) {
+    if (sameDir && avgAdj < 0 && adjDiff <= ac.downgradeAgreementMaxDiff) {
       autoApply = true;
-      avgAdj = Math.max(avgAdj, -40);
-    } else if (sameDir && avgAdj > 0 && avgAdj <= 5 && adjDiff <= 2) {
+      avgAdj = Math.max(avgAdj, ac.downgradeApplyCap);
+    } else if (sameDir && avgAdj > 0 && avgAdj <= ac.upgradeMaxAutoApply && adjDiff <= ac.upgradeAgreementMaxDiff) {
       autoApply = true;
     }
 
@@ -940,6 +946,7 @@ async function runFullReview(jobId) {
   _runningReviews.add(jobId);
 
   console.log(`[AI-Review] Starting full review for job ${jobId}`);
+  console.log(`[AI-Review] Rulebook: master genealogy rules v${RULES_VERSION} (ref ${RULES_HASH}) injected into model prompts`);
 
   try {
     db.updateResearchJob(jobId, { ai_review_status: 'running' });
