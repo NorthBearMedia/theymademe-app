@@ -313,7 +313,7 @@ The direct search strategy often picks the WRONG person. Common failures:
 - **Location mismatch**: Parent born in completely different region from their child — huge red flag
 - **Name mismatch**: Engine found "Walter Hunt" but the child's records might indicate "Frederick Hunt" as father
 - **Foreign matches**: Engine occasionally matches to American, Australian, or Scandinavian records instead of UK ones
-- **Era mismatch**: Birth year gap between parent and child should be 20-35 years typically (12-55 is technically possible but extremes are suspicious)
+- **Era mismatch / impossible gap**: Parent–child birth gap should be ~20-35 years (12-55 possible; extremes suspicious). A parent born in the SAME year or AFTER their child, a gap under 12 years, or a gap over 60 years is impossible/near-impossible — flag type "error" with confidence_adjustment -40 to -50 and say which slot is implausible.
 
 For EVERY engine-discovered ancestor (not Customer Data), actively check:
 - Does this person's birth location make geographic sense relative to their child?
@@ -751,49 +751,58 @@ function applyAICorrections(jobId, gptResult, claudeResult) {
     const gptAdj = gptReview?.confidence_adjustment || 0;
     const claudeAdj = claudeReview?.confidence_adjustment || 0;
 
-    // Agreement threshold scales with magnitude: small adjustments need ±2, large ones need ±10
     const adjDiff = Math.abs(gptAdj - claudeAdj);
-    const avgMag = Math.abs((gptAdj + claudeAdj) / 2);
-    const threshold = avgMag >= 20 ? 15 : avgMag >= 10 ? 8 : 2;
+    const sameDir = gptAdj !== 0 && claudeAdj !== 0 && Math.sign(gptAdj) === Math.sign(claudeAdj);
+    let avgAdj = Math.round((gptAdj + claudeAdj) / 2);
 
-    if (gptAdj !== 0 && claudeAdj !== 0 && adjDiff <= threshold && Math.sign(gptAdj) === Math.sign(claudeAdj)) {
-      // Both models agree on direction and roughly same magnitude → auto-apply average
-      const avgAdj = Math.round((gptAdj + claudeAdj) / 2);
-      if (avgAdj !== 0) {
-        const oldScore = anc.confidence_score || 0;
-        const newScore = Math.max(0, Math.min(100, oldScore + avgAdj));
+    // Decide whether to auto-apply — ASYMMETRIC by direction:
+    //  - DOWNGRADES (more skepticism) are the SAFE direction. Auto-apply when
+    //    both models agree on a downgrade, but cap a single auto-downgrade at
+    //    -40 so one review can't nuke a score on a shared hallucination.
+    //  - UPGRADES inflate confidence in a possibly-wrong match, so only tiny,
+    //    tightly-agreed boosts auto-apply; anything larger needs admin sign-off.
+    let autoApply = false;
+    if (sameDir && avgAdj < 0 && adjDiff <= 10) {
+      autoApply = true;
+      avgAdj = Math.max(avgAdj, -40);
+    } else if (sameDir && avgAdj > 0 && avgAdj <= 5 && adjDiff <= 2) {
+      autoApply = true;
+    }
 
-        if (newScore !== oldScore) {
-          // Apply
-          db.updateAncestorByAscNumber(jobId, asc, { confidence_score: newScore });
+    if (autoApply && avgAdj !== 0) {
+      const oldScore = anc.confidence_score || 0;
+      const newScore = Math.max(0, Math.min(100, oldScore + avgAdj));
 
-          // Log in corrections_log
-          const log = anc.corrections_log || [];
-          log.push({
-            type: 'confidence_adjustment',
-            source: 'ai_auto',
-            old_value: oldScore,
-            new_value: newScore,
-            gpt_adj: gptAdj,
-            claude_adj: claudeAdj,
-            applied_at: new Date().toISOString(),
-            undone: false,
-          });
-          db.updateAncestorByAscNumber(jobId, asc, { corrections_log: log });
+      if (newScore !== oldScore) {
+        // Apply
+        db.updateAncestorByAscNumber(jobId, asc, { confidence_score: newScore });
 
-          corrections.push({
-            asc,
-            name: anc.name,
-            type: 'confidence_adjustment',
-            old_value: oldScore,
-            new_value: newScore,
-            gpt_adj: gptAdj,
-            claude_adj: claudeAdj,
-          });
-        }
+        // Log in corrections_log
+        const log = anc.corrections_log || [];
+        log.push({
+          type: 'confidence_adjustment',
+          source: 'ai_auto',
+          old_value: oldScore,
+          new_value: newScore,
+          gpt_adj: gptAdj,
+          claude_adj: claudeAdj,
+          applied_at: new Date().toISOString(),
+          undone: false,
+        });
+        db.updateAncestorByAscNumber(jobId, asc, { corrections_log: log });
+
+        corrections.push({
+          asc,
+          name: anc.name,
+          type: 'confidence_adjustment',
+          old_value: oldScore,
+          new_value: newScore,
+          gpt_adj: gptAdj,
+          claude_adj: claudeAdj,
+        });
       }
-    } else if ((gptAdj !== 0 || claudeAdj !== 0) && Math.abs(gptAdj - claudeAdj) > 2) {
-      // Models disagree on direction/magnitude → suggest
+    } else if (gptAdj !== 0 || claudeAdj !== 0) {
+      // Large upgrade, model disagreement, or single-model signal → suggest for admin
       suggestions.push({
         asc,
         name: anc.name,

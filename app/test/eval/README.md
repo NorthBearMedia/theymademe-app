@@ -15,6 +15,7 @@ cd app
 node test/eval/smoke.js                 # proves the engine runs end-to-end offline
 node test/eval/run.js hunt-derby        # clean 3-generation family  (expect 100%)
 node test/eval/run.js ambiguous-derby   # adversarial: two same-name fathers
+node test/eval/ai-consensus.test.js     # unit test for AI auto-correction consensus
 ```
 
 Each `run.js` prints a per-slot CORRECT / WRONG / MISSING table plus
@@ -39,7 +40,20 @@ engine discriminates correctly.
 
 ## To run against a REAL family + live FamilySearch
 
-The same scorer works against live data — swap the mock sources for the real
-`buildSourceRegistry()` and provide a FamilySearch token (+ optional AI keys).
-This is the only way to measure true real-world accuracy; the mock proves the
-*logic*, not the messiness of real records.
+`run-live.js` runs the real engine against the real FamilySearch/FreeBMD APIs
+and scores against your known tree — the true real-world benchmark.
+
+```bash
+cp test/eval/scenarios/my-family.example.json test/eval/scenarios/my-family.json
+# edit my-family.json: input = what a customer would know; groundTruth = the answer key
+
+FS_ACCESS_TOKEN=<authenticated token> FS_CLIENT_ID=<client id> \
+  node test/eval/run-live.js test/eval/scenarios/my-family.json
+```
+
+Put in `input.notes` only what a real customer provides (parents, maybe
+grandparents); put the FULL correct tree in `groundTruth`. The engine must
+DISCOVER slots #4+, and the harness scores how well it did. An *authenticated*
+token is required for tree traversal (an unauthenticated session only allows
+search). The mock harness proves the *logic*; only a live run proves accuracy
+against the messiness of real records.

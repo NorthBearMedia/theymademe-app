@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy this to my-family.json and fill in YOUR real tree. Put in input.notes only what a real customer would know (parents, maybe grandparents). Put the FULL correct tree in groundTruth — slots #4+ are scored as how well the engine DISCOVERS them. county should be the historic county (e.g. Derbyshire).",
+  "generations": 4,
+  "input": {
+    "customer_name": "Your Name",
+    "given_name": "Your",
+    "surname": "Surname",
+    "birth_date": "1960",
+    "birth_place": "Derby, Derbyshire, England",
+    "father_name": "Father Surname",
+    "mother_name": "Mother Maidenname",
+    "notes": "Father: Father Surname (1931-1998); Mother: Mother Maidenname (1933-2005)"
+  },
+  "groundTruth": {
+    "1": { "given": "Your", "surname": "Surname", "year": 1960, "county": "Derbyshire" },
+    "2": { "given": "Father", "surname": "Surname", "year": 1931, "county": "Derbyshire" },
+    "3": { "given": "Mother", "surname": "Maidenname", "year": 1933, "county": "Derbyshire" },
+    "4": { "given": "PaternalGrandfather", "surname": "Surname", "year": 1903, "county": "Derbyshire" },
+    "5": { "given": "PaternalGrandmother", "surname": "HerMaiden", "year": 1906, "county": "Derbyshire" },
+    "6": { "given": "MaternalGrandfather", "surname": "Maidenname", "year": 1905, "county": "Derbyshire" },
+    "7": { "given": "MaternalGrandmother", "surname": "HerMaiden", "year": 1908, "county": "Derbyshire" }
+  }
+}
