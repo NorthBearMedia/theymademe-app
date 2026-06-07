@@ -3532,10 +3532,16 @@ class ResearchEngine {
 
             // ── SCORE THIS CANDIDATE ──
             let score = 50; // base score for passing all filters
-            // Birth year proximity bonus
-            if (candYear && effectiveExpectedYear) {
+            // Birth year proximity bonus.
+            // Prefer the customer's STATED birth year over a generation estimate:
+            // an exact match to what the customer actually told us is the
+            // strongest identity signal we have, so weight it the most (up to +40).
+            if (candYear && recBirthYear) {
+              const yearDiff = Math.abs(candYear - recBirthYear);
+              score += Math.max(0, 40 - yearDiff * 5); // up to +40 for matching customer-stated year
+            } else if (candYear && effectiveExpectedYear) {
               const yearDiff = Math.abs(candYear - effectiveExpectedYear);
-              score += Math.max(0, 30 - yearDiff * 3); // up to +30 for exact match
+              score += Math.max(0, 30 - yearDiff * 3); // up to +30 for matching the estimate
             }
             // Having a birth date at all (not a stub)
             if (candYear) score += 15;
@@ -3547,8 +3553,12 @@ class ResearchEngine {
               if (prox.proximity === 'same') score += 20;
               else if (prox.proximity === 'nearby') score += 10;
             }
-            // Source count bonus
-            score += sourceScore * 5;
+            // Source count bonus — CAPPED at +15 so a wrong person who simply has
+            // many attached records cannot out-rank a correct identity/date match.
+            score += Math.min(sourceScore, 3) * 5;
+            // FamilySearch's own relevance rank — a useful tiebreaker between
+            // otherwise-similar candidates that the engine previously ignored.
+            score += Math.min(15, Math.round((cand.score || 0) * 0.1));
             // Parent data available bonus (useful for downstream tree traversal)
             if (cand.parentData && (cand.parentData.father || cand.parentData.mother)) score += 10;
 
