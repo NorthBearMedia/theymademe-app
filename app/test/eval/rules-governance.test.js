@@ -46,7 +46,8 @@ check('AI system prompt embeds the rulebook text', SYSTEM_PROMPT.includes(RULES_
 check('AI system prompt references the rulebook version+hash', SYSTEM_PROMPT.includes(`v${RULES_VERSION}`) && SYSTEM_PROMPT.includes(RULES_HASH));
 
 // 4. Narrative is generated from values (states the real numbers).
-check('narrative states the real hard-max gap', RULES_TEXT.includes(String(RULES.ageGap.hardMaxYears)));
+check('narrative states the real mother fertility ceiling', RULES_TEXT.includes(String(RULES.ageGap.mother.hardMax)));
+check('narrative states the real father gap ceiling', RULES_TEXT.includes(String(RULES.ageGap.father.hardMax)));
 check('narrative states the real unsourced-era cap', RULES_TEXT.includes(String(RULES.gates.unsourcedCivilEraMaxPercent)));
 
 fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });

@@ -20,25 +20,23 @@
 const crypto = require('crypto');
 
 const RULES = {
-  version: '1.0.0',
+  version: '2.0.0',
 
-  // ── Parent→child birth-year gap ────────────────────────────────────────
-  // A parent is born this many years before their child. Used to reject
-  // impossible relationships and to reward plausible ones.
+  // ── Parent→child birth-year gap (SEX-SPECIFIC) ─────────────────────────
+  // A parent is born this many years before their child. Bounds differ by sex
+  // because female fertility ends ~50, while men can father children far later.
+  // A gap outside [hardMin, hardMax] for that sex is rejected. The single most
+  // common false match is a grandmother mislabelled as a mother — caught by the
+  // mother ceiling.
   ageGap: {
-    hardMinYears: 12,           // below this = reject (biological floor)
-    hardMaxYears: 55,           // above this = reject (after accounting for late parenthood)
-    plausibleMinYears: 18,      // gap in [plausible..] earns the plausibility bonus
-    plausibleMaxYears: 45,
-    sweetSpotMinYears: 22,      // typical gap — earns an extra bonus
-    sweetSpotMaxYears: 35,
-    plausiblePoints: 5,         // points for a plausible gap
-    sweetSpotPoints: 2,         // extra points for a typical gap
+    mother: { hardMin: 14, hardMax: 50, plausibleMin: 16, plausibleMax: 43, sweetMin: 20, sweetMax: 35 },
+    father: { hardMin: 16, hardMax: 60, plausibleMin: 20, plausibleMax: 50, sweetMin: 24, sweetMax: 40 },
+    // Widest bounds — for coarse pre-filters where the parent's sex isn't known.
+    absolute: { hardMin: 14, hardMax: 60 },
+    plausiblePoints: 5,            // gap within the sex's plausible band
+    sweetSpotPoints: 2,           // extra for a typical gap
     parentAfterChildPenalty: -50, // parent born after the child = impossible
-    implausibleGapPenalty: -30, // gap outside the plausible range but not flatly impossible
-    // NOTE: scoreLocationDate currently penalises gaps below this value. It is
-    // 15, which conflicts with hardMinYears (12). See MASTER-RULES.md → REVIEW R1.
-    scoringPenaltyBelowYears: 15,
+    implausibleGapPenalty: -30,   // gap outside [hardMin, hardMax] for that sex
   },
 
   // ── Birth-year tolerance when matching a candidate to a known person ────
@@ -75,7 +73,7 @@ const RULES = {
     minPrimaryDeepGen: 1,       // generations >= deepFromGen
     deepFromGen: 4,
     commonSurnameExtraPrimary: 1, // common surnames need one MORE than the base
-    distantLocationMinPrimary: 4, // a parent in a distant county needs this many
+    distantLocationMinPrimary: 3, // a parent in a distant county needs this many (industrial-era migration was common)
     preCivilRegistrationYear: 1837, // before this, civil records don't exist — accept tree leads
   },
 
@@ -107,7 +105,7 @@ const RULES = {
     sameCountyPoints: 5,
     sameTownBonus: 3,
     adjacentCountyPoints: 2,
-    distantCountyPenalty: -15,
+    distantCountyPenalty: -18,   // "right name, wrong county" is the #1 false match
     sameGenerationCountyBonus: 2,
   },
 
@@ -132,7 +130,8 @@ const RULES = {
   // ── Name / surname matching ────────────────────────────────────────────
   surname: {
     fatherSurnameMatchBonus: 5,        // father's surname matches the child's
-    fatherSurnameMismatchPenalty: -15, // father's surname must match the child's
+    fatherSurnameMismatchPenalty: -25, // surname continuity father→child is one of
+                                       // the strongest signals; a mismatch is near-disqualifying
     motherMaidenPresentBonus: 3,
   },
 
@@ -185,10 +184,11 @@ function renderRulesText() {
 These rules are HUMAN-OWNED and authoritative. Apply them exactly. You may
 suggest, but you may NOT invent looser rules or override these thresholds.
 
-1. PARENT–CHILD AGE GAP: a parent is born ${a.hardMinYears}–${a.hardMaxYears} years before their child.
+1. PARENT–CHILD AGE GAP (SEX-SPECIFIC — a parent is born this many years before the child):
+   - MOTHER: ${a.mother.hardMin}–${a.mother.hardMax} years (female fertility ends ~50). A "mother" more than ${a.mother.hardMax} years older than her child is almost always a WRONG link (commonly a grandmother) — flag "error".
+   - FATHER: ${a.father.hardMin}–${a.father.hardMax} years (typical ${a.father.sweetMin}–${a.father.sweetMax}).
    - A parent born the same year as or AFTER the child is IMPOSSIBLE — flag "error", confidence_adjustment ${a.parentAfterChildPenalty}.
-   - A gap below ${a.hardMinYears} or above ${a.hardMaxYears} years is near-impossible — flag "error", ${a.implausibleGapPenalty} or worse.
-   - The typical gap is ${a.sweetSpotMinYears}–${a.sweetSpotMaxYears} years.
+   - A gap outside the range for that sex is near-impossible — flag "error", ${a.implausibleGapPenalty} or worse.
 2. UK SCOPE: ancestors are from England, Wales, Scotland or Ireland. Foreign matches are errors unless migration is documented.
 3. LOCATION: a parent's county should match or be adjacent to the child's. A DISTANT county is a strong red flag unless ${s.distantLocationMinPrimary}+ primary sources confirm it.
 4. DOCUMENTARY PROOF (FamilySearch trees are LEADS, not evidence):

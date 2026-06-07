@@ -18,6 +18,7 @@ node test/eval/run.js ambiguous-derby   # adversarial: two same-name fathers
 node test/eval/ai-consensus.test.js     # unit test for AI auto-correction consensus
 node test/eval/confidence-gating.test.js # unsourced civil-era ancestors capped
 node test/eval/rules-governance.test.js  # master rulebook is frozen + referenced
+node test/eval/age-gap.test.js           # sex-specific parent age-gap rules
 ```
 
 The master rulebook (single source of truth for all thresholds) lives at

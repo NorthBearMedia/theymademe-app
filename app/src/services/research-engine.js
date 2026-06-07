@@ -1233,27 +1233,31 @@ class ResearchEngine {
     const childYear = normalizeDate(child.birthDate || '')?.year;
 
     if (ancestorYear && childYear) {
-      // Age-gap values come from the master rulebook (RULES.ageGap).
+      // Sex-specific age-gap bounds from the master rulebook (even asc = father,
+      // odd asc = mother). Female fertility ends ~50, so the bounds differ.
       const ag = RULES.ageGap;
+      const isMother = asc % 2 === 1;
+      const b = isMother ? ag.mother : ag.father;
+      const who = isMother ? 'mother' : 'father';
       const gap = childYear - ancestorYear;
       if (gap < 0) {
         // Parent born AFTER child — impossible
         points += ag.parentAfterChildPenalty;
-        notes.push(`REJECT: parent born ${Math.abs(gap)}yrs AFTER child — impossible (${ag.parentAfterChildPenalty})`);
-      } else if (gap < ag.scoringPenaltyBelowYears || gap > ag.hardMaxYears) {
-        // Implausible generation gap (e.g. 158 years)
+        notes.push(`REJECT: ${who} born ${Math.abs(gap)}yrs AFTER child — impossible (${ag.parentAfterChildPenalty})`);
+      } else if (gap < b.hardMin || gap > b.hardMax) {
+        // Outside the plausible range for this sex
         points += ag.implausibleGapPenalty;
-        notes.push(`REJECT: ${gap}yr generation gap — implausible (${ag.implausibleGapPenalty})`);
-      } else if (gap >= ag.plausibleMinYears && gap <= ag.plausibleMaxYears) {
+        notes.push(`REJECT: ${gap}yr ${who} gap — outside ${b.hardMin}-${b.hardMax} (${ag.implausibleGapPenalty})`);
+      } else if (gap >= b.plausibleMin && gap <= b.plausibleMax) {
         points += ag.plausiblePoints;
-        notes.push(`Age: born ~${gap}yrs before child — plausible (+${ag.plausiblePoints})`);
-        if (gap >= ag.sweetSpotMinYears && gap <= ag.sweetSpotMaxYears) {
+        notes.push(`Age: ${who} ~${gap}yrs before child — plausible (+${ag.plausiblePoints})`);
+        if (gap >= b.sweetMin && gap <= b.sweetMax) {
           points += ag.sweetSpotPoints;
           notes.push(`Age: sweet spot (+${ag.sweetSpotPoints})`);
         }
       } else {
         // unusual but not impossible
-        notes.push(`Age: born ~${gap}yrs before child — unusual but possible`);
+        notes.push(`Age: ${who} ~${gap}yrs before child — unusual but possible`);
       }
     } else {
       notes.push('Age: no birth years to compare');
@@ -1518,9 +1522,11 @@ class ResearchEngine {
     const childYear = normalizeDate(childRec.birth_date)?.year;
     const parentYear = normalizeDate(parent.birthDate)?.year;
     if (childYear && parentYear) {
+      // Sex-specific bounds from the master rulebook (eg = expected parent gender).
+      const b = (eg === 'Female') ? RULES.ageGap.mother : RULES.ageGap.father;
       const gap = childYear - parentYear;
-      if (gap < 12 || gap > 55) {
-        reasons.push(`Birth gap ${gap} years (expected 12-55)`);
+      if (gap < b.hardMin || gap > b.hardMax) {
+        reasons.push(`Birth gap ${gap} years (expected ${b.hardMin}-${b.hardMax} for ${eg === 'Female' ? 'mother' : 'father'})`);
         valid = false;
       } else {
         reasons.push(`Birth gap: ${gap} years`);
@@ -3703,7 +3709,7 @@ class ResearchEngine {
 
               // Distant parents need much stronger evidence (4+ primary sources)
               // People did move but it was rare — require strong proof
-              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < 4) {
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantLocationMinPrimary) {
                 console.log(`[Engine] asc#${fatherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
               } else {
 
@@ -3771,7 +3777,7 @@ class ResearchEngine {
               console.log(`[Engine] asc#${motherAsc}: Sources: ${srcVerify.sources.length} total, ${srcVerify.primaryCount} primary → ${discoveryMethod}`);
 
               // Distant parents need much stronger evidence (4+ primary sources)
-              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < 4) {
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantLocationMinPrimary) {
                 console.log(`[Engine] asc#${motherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
               } else {
 
@@ -3907,7 +3913,7 @@ class ResearchEngine {
                   const candYear = normalizeDate(cand.birthDate)?.year;
                   if (childBirthYear && candYear) {
                     const gap = childBirthYear - candYear;
-                    if (gap < 12 || gap > 55) continue;
+                    if (gap < RULES.ageGap.absolute.hardMin || gap > RULES.ageGap.absolute.hardMax) continue;
                   }
                   // Must have a birth date for post-1837 people
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
@@ -3932,7 +3938,7 @@ class ResearchEngine {
                   const candPlaceFull = sanitizePlaceName(cand.birthPlace || cand.deathPlace || '');
                   const candProximity = childBirthPlace ? placeProximity(candPlaceFull, childBirthPlace) : { proximity: null };
                   if (candProximity.proximity === 'distant') {
-                    minSources = Math.max(minSources, 4); // Distant parents need 4+ primary sources
+                    minSources = Math.max(minSources, RULES.sources.distantLocationMinPrimary); // Distant parents need more primary sources
                     console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — DISTANT (${candProximity.county1} vs ${candProximity.county2}), need ${minSources}+ sources`);
                   }
                   const srcVerify = await this.verifyParentSources(cand.id);
@@ -4122,7 +4128,7 @@ class ResearchEngine {
                   const candYear = normalizeDate(cand.birthDate)?.year;
                   if (childBirthYear && candYear) {
                     const gap = childBirthYear - candYear;
-                    if (gap < 12 || gap > 55) continue;
+                    if (gap < RULES.ageGap.absolute.hardMin || gap > RULES.ageGap.absolute.hardMax) continue;
                   }
                   if (childBirthYear && childBirthYear >= 1837 && !candYear) continue;
 
@@ -4333,7 +4339,7 @@ class ResearchEngine {
                   const spouseYear = normalizeDate(spouse.birthDate)?.year;
                   if (childBirthYear && spouseYear) {
                     const gap = childBirthYear - spouseYear;
-                    if (gap < 12 || gap > 55) continue;
+                    if (gap < RULES.ageGap.absolute.hardMin || gap > RULES.ageGap.absolute.hardMax) continue;
                   }
 
                   // Source verification — distant spouses need 4+ primary sources
@@ -4344,7 +4350,7 @@ class ResearchEngine {
                   if (spouseBirthYr && spouseBirthYr < 1837) spouseMinSources = 0;
                   const spouseProx = childBirthPlace ? placeProximity(spousePlace, childBirthPlace) : { proximity: null };
                   if (spouseProx.proximity === 'distant') {
-                    spouseMinSources = Math.max(spouseMinSources, motherGen >= 4 ? 2 : 4);
+                    spouseMinSources = Math.max(spouseMinSources, motherGen >= 4 ? 2 : RULES.sources.distantLocationMinPrimary);
                     console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — DISTANT (${spouseProx.county1} vs ${spouseProx.county2}), need 4+ sources`);
                   }
                   const srcVerify = await this.verifyParentSources(spouse.id);

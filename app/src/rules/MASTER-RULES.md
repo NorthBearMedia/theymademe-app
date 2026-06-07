@@ -25,44 +25,45 @@ Run the guard: `node app/test/eval/rules-governance.test.js`
 
 ## What the rules cover (snapshot — `genealogy-rules.js` is authoritative)
 
-- **Age gap** parent→child: accept 12–55 yrs; typical 22–35; parent-after-child = impossible (−50).
+- **Age gap** parent→child, **sex-specific**: mother **14–50** (female fertility ends ~50), father **16–60**; typical mother 20–35 / father 24–40; parent-after-child = impossible (−50).
 - **Birth-year tolerance** when matching: ±5 yrs (±8 for great-grandparents+).
 - **Birth-year estimation** when unknown: father −28, mother −26.
-- **Sources**: primary = Civil Registration, Census, 1939 Register, Parish Register; points & per-category caps; minimum primary sources by generation / common surname / distant location; pre-1837 accepts tree leads.
+- **Sources**: primary = Civil Registration, Census, 1939 Register, Parish Register; points & per-category caps; minimum primary sources by generation / common surname; **distant county needs 3** (industrial-era migration was common); pre-1837 accepts tree leads.
 - **Confidence**: points→% mapping; Verified 90+, Probable 75+, Possible 50+, Suggested 25+; auto-accept at 75%.
 - **Confidence gates**: no surname → ≤49; no identifying data → ≤35; born 1837+ with no records → ≤74 ("Possible").
-- **Location**: same county +5, town +3, adjacent +2, distant −15.
+- **Location**: same county +5, town +3, adjacent +2, **distant −18** ("right name, wrong county" is the #1 false match).
 - **Candidate scoring**: prefer the customer's stated year, capped source bonus, FamilySearch relevance tiebreaker.
-- **Surname**: father's surname must match the child's (−15 mismatch).
+- **Surname**: father's surname must match the child's (**−25 mismatch** — near-disqualifying).
 - **FreeBMD** confirmation score thresholds; **AI auto-correction** consensus bar.
 
 ---
 
-## ⚠ REVIEW — sense-check findings for a human to decide on
+## Changelog — v2.0.0 (oracle pass)
 
-These are inconsistencies/values the audit flagged. They are **left at their
-current behaviour** in `genealogy-rules.js`; change the number only if you agree.
+Values authored from genealogical first principles (demography, the Genealogical
+Proof Standard, UK records reality):
 
-- **R1 — Age-gap floor disagreement.** Tree validation rejects gaps below
-  **12 yrs**, but the *scoring* penalises gaps below **15 yrs**
-  (`ageGap.scoringPenaltyBelowYears = 15`). So a real 13–14-year gap passes
-  validation yet is penalised −30 in scoring. **Recommend:** set
-  `scoringPenaltyBelowYears` to `12` to match the floor.
-- **R2 — Father estimate not unified everywhere.** The fallback estimate is
-  now `estimation.fatherGapYears = 28` (rulebook-governed), but a few discovery
-  paths still use a hard-coded **−25**. **Recommend:** wire those to the rulebook
-  so the father gap is 28 everywhere (or pick one value).
-- **R3 — Distant-location minimum sources = 4.** People did migrate; requiring
-  4 primary sources may drop correct ancestors. **Consider** 2–3.
+- **Age gap is now sex-specific** — mother 14–50 (hard female-fertility ceiling),
+  father 16–60. This catches the most common false match: a grandmother
+  mislabelled as a mother. (Resolves old R1 — scoring floor now equals the
+  sex-specific hard minimum, so there is no longer a 12-vs-15 conflict.)
+- **Distant-county minimum sources 4 → 3** (resolves old R3) — 19th-century
+  migration to industrial towns was common; 4 over-rejected real ancestors.
+- **Father-surname mismatch −15 → −25** — surname continuity father→child is one
+  of the most reliable signals; a mismatch should be near-disqualifying.
+- **Distant-county scoring penalty −15 → −18** — strengthens the geography signal.
+
+## ⚠ REVIEW — remaining items for a human to decide on
+
+- **R2 — Father/mother estimate not unified in every inline path.** The
+  governed fallback is father −28 / mother −26, but a few discovery paths still
+  inline −25. Low impact (the estimate is only a search centre with a ±5–8yr
+  window), but worth tidying for consistency.
 - **R4 — Common-surname source escalation is uneven** across Phase 1 / Phase 2 /
-  direct search. **Consider** routing all of it through
+  direct search. Consider routing all of it through
   `sources.commonSurnameExtraPrimary` for one consistent policy.
-- **R5 — Not every constant is rulebook-governed yet.** Wired so far: confidence
-  cutoffs & gates, age-gap & location scoring, source points/categories,
-  candidate scoring, estimation fallback, year tolerance, surname/discovery
-  bonuses, AI auto-correction. **Still hard-coded (to migrate next):** Strategy-2
-  direct-search `minSources` ladder, FreeBMD client score weights, and the −25
-  estimate in R2.
+- **R5 — Not every constant is rulebook-governed yet.** Still hard-coded:
+  Strategy-2 direct-search `minSources` ladder, FreeBMD client score weights,
+  and the inline −25 estimate in R2.
 
-To action any of these, tell the maintainer which value to change — or edit
-`genealogy-rules.js` directly and bump the version.
+To change any value, edit `genealogy-rules.js` and bump `version` — you own the rules.
