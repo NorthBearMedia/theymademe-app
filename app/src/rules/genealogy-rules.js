@@ -20,7 +20,7 @@
 const crypto = require('crypto');
 
 const RULES = {
-  version: '2.0.0',
+  version: '2.1.0',
 
   // ── Parent→child birth-year gap (SEX-SPECIFIC) ─────────────────────────
   // A parent is born this many years before their child. Bounds differ by sex
@@ -52,6 +52,7 @@ const RULES = {
     fatherGapYears: 28,         // father ≈ child birth − 28
     motherGapYears: 26,         // mother ≈ child birth − 26
     grandchildFallbackGapYears: 28,
+    fatherAgeAtMarriageYears: 25, // father ≈ marriage year − 25 (historical UK male age at first marriage)
   },
 
   // ── Source records ─────────────────────────────────────────────────────
@@ -72,8 +73,10 @@ const RULES = {
     minPrimaryShallowGen: 2,    // generations < deepFromGen
     minPrimaryDeepGen: 1,       // generations >= deepFromGen
     deepFromGen: 4,
-    commonSurnameExtraPrimary: 1, // common surnames need one MORE than the base
+    veryDeepFromGen: 5,         // at/after this generation the common-surname surcharge no longer applies (records too sparse)
+    commonSurnameExtraPrimary: 1, // common surnames (without a known given name) need one MORE than the base
     distantLocationMinPrimary: 3, // a parent in a distant county needs this many (industrial-era migration was common)
+    distantLocationMinPrimaryDeepGen: 2, // deep generations: distant still needs more than base, but records are sparser
     preCivilRegistrationYear: 1837, // before this, civil records don't exist — accept tree leads
   },
 
@@ -147,6 +150,11 @@ const RULES = {
     birthConfirmMinScore: 50,
     deathConfirmMinScore: 50,
     marriageConfirmMinScore: 45,
+  },
+
+  // ── Customer deliverables (PDF fan chart / GEDCOM) ─────────────────────
+  export: {
+    minConfidencePercent: 50,  // only "Possible" or better goes into the customer's tree
   },
 
   // ── AI reviewer auto-correction consensus ──────────────────────────────

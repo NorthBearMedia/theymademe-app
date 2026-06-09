@@ -238,8 +238,9 @@
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <%
-                  var badgeColor = anc.confidence_score >= 90 ? '#155724' : anc.confidence_score >= 75 ? '#1a5276' : anc.confidence_score >= 50 ? '#856404' : '#721c24';
-                  var badgeBg = anc.confidence_score >= 90 ? '#d4edda' : anc.confidence_score >= 75 ? '#d6eaf8' : anc.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
+                  // Cutoffs come from the master rulebook (injected by server.js)
+                  var badgeColor = anc.confidence_score >= confidenceCutoffs.verified ? '#155724' : anc.confidence_score >= confidenceCutoffs.probable ? '#1a5276' : anc.confidence_score >= confidenceCutoffs.possible ? '#856404' : '#721c24';
+                  var badgeBg = anc.confidence_score >= confidenceCutoffs.verified ? '#d4edda' : anc.confidence_score >= confidenceCutoffs.probable ? '#d6eaf8' : anc.confidence_score >= confidenceCutoffs.possible ? '#fff3cd' : '#f8d7da';
                 %>
                 <span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;">
                     <%= anc.confidence_score %>% <%= anc.confidence_level %>

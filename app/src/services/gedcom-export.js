@@ -1,3 +1,5 @@
+const { RULES } = require('../rules/genealogy-rules');
+
 function formatGedcomName(name) {
   if (!name) return '//';
   // Strip "(not found)" suffix from rejected ancestors
@@ -15,8 +17,9 @@ function formatGedcomDate(dateStr) {
 }
 
 function generateGedcom(job, ancestors) {
-  // Filter: only include ancestors with confidence_score >= 50 (Possible or better)
-  const verifiedAncestors = ancestors.filter(a => (a.confidence_score || 0) >= 50);
+  // Filter — the master rulebook decides what is good enough for the customer
+  const verifiedAncestors = ancestors.filter(a =>
+    (a.confidence_score || 0) >= RULES.export.minConfidencePercent || a.confidence_level === 'Customer Data');
 
   const lines = [];
   const now = new Date();

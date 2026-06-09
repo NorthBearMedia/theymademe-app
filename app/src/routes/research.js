@@ -4,6 +4,7 @@ const db = require('../services/database');
 const { ResearchEngine, parseNotesForAnchors, parseNameParts } = require('../services/research-engine');
 const { buildSourceRegistry } = require('../services/source-registry');
 const requireAuth = require('../middleware/auth');
+const { RULES } = require('../rules/genealogy-rules');
 
 const router = express.Router();
 
@@ -239,6 +240,7 @@ router.get('/:id/progress', requireAuth, (req, res) => {
   if (!job) return res.status(404).json({ error: 'Not found' });
   res.json({
     status: job.status,
+    stalled: db.isJobStalled(job),
     progress_message: job.progress_message || '',
     progress_current: job.progress_current || 0,
     progress_total: job.progress_total || 0,
@@ -277,6 +279,7 @@ router.get('/:id/ancestors', requireAuth, (req, res) => {
 
   res.json({
     status: job.status,
+    stalled: db.isJobStalled(job),
     progress_message: job.progress_message || '',
     progress_current: job.progress_current || 0,
     progress_total: job.progress_total || 0,
@@ -509,12 +512,16 @@ router.post('/:id/ancestor/:ascNumber/select-candidate', requireAuth, async (req
     sources: ['FamilySearch'],
     raw_data: rawData,
     confidence_score: candidate.computed_score || 0,
-    confidence_level: candidate.computed_score >= 90 ? 'Verified' : candidate.computed_score >= 75 ? 'Probable' : candidate.computed_score >= 50 ? 'Possible' : 'Suggested',
+    confidence_level: (() => {
+      const L = RULES.confidence.levelCutoffs;
+      const s = candidate.computed_score || 0;
+      return s >= L.verified ? 'Verified' : s >= L.probable ? 'Probable' : s >= L.possible ? 'Possible' : 'Suggested';
+    })(),
     evidence_chain: [],
     search_log: [],
     conflicts: [],
     verification_notes: 'Manually selected from alternative candidates by admin.',
-    accepted: candidate.computed_score > 50 ? 1 : 0,
+    accepted: (candidate.computed_score || 0) >= RULES.confidence.autoAcceptPercent ? 1 : 0,
     missing_info: [],
   });
 
@@ -742,7 +749,7 @@ router.get('/:id', requireAuth, (req, res) => {
   if (!job) return res.status(404).send('Research job not found');
 
   const ancestors = db.getAncestors(req.params.id);
-  res.render('research-view', { job, ancestors });
+  res.render('research-view', { job, ancestors, jobStalled: db.isJobStalled(job) });
 });
 
 module.exports = router;

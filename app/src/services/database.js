@@ -81,6 +81,9 @@ function initialize() {
   if (!hasColumn('research_jobs', 'progress_message')) {
     conn.exec(`ALTER TABLE research_jobs ADD COLUMN progress_message TEXT`);
   }
+  if (!hasColumn('research_jobs', 'last_progress_at')) {
+    conn.exec(`ALTER TABLE research_jobs ADD COLUMN last_progress_at DATETIME`);
+  }
   if (!hasColumn('research_jobs', 'progress_current')) {
     conn.exec(`ALTER TABLE research_jobs ADD COLUMN progress_current INTEGER DEFAULT 0`);
   }
@@ -215,9 +218,21 @@ function updateResearchJob(id, updates) {
 }
 
 function updateJobProgress(jobId, message, current, total) {
+  // last_progress_at is the heartbeat — a 'running' job whose heartbeat goes
+  // quiet has crashed silently (fire-and-forget engine) and is flagged stalled.
   getDb().prepare(`
-    UPDATE research_jobs SET progress_message = ?, progress_current = ?, progress_total = ? WHERE id = ?
+    UPDATE research_jobs SET progress_message = ?, progress_current = ?, progress_total = ?,
+      last_progress_at = datetime('now') WHERE id = ?
   `).run(message, current, total, jobId);
+}
+
+// A running job whose heartbeat is older than this is considered stalled.
+const STALL_MINUTES = 10;
+function isJobStalled(job) {
+  if (!job || job.status !== 'running') return false;
+  if (!job.last_progress_at) return false;
+  const last = new Date(job.last_progress_at + 'Z').getTime();
+  return Number.isFinite(last) && (Date.now() - last) > STALL_MINUTES * 60 * 1000;
 }
 
 // Ancestors
@@ -507,7 +522,7 @@ function getAllFeedbackStats() {
 module.exports = {
   initialize,
   getSetting, setSetting,
-  createResearchJob, getResearchJob, listResearchJobs, updateResearchJob, updateJobProgress,
+  createResearchJob, getResearchJob, listResearchJobs, updateResearchJob, updateJobProgress, isJobStalled,
   addAncestor, getAncestors, getAncestorById, deleteAncestors, deleteAncestorByAscNumber,
   getAncestorByAscNumber, updateAncestorByAscNumber, updateAncestorById, deleteSearchCandidates,
   addSearchCandidate, getSearchCandidates, updateSearchCandidateStatus,

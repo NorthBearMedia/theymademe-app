@@ -3,8 +3,13 @@ const db = require('../services/database');
 const { generateGedcom } = require('../services/gedcom-export');
 const { generateFanChartPdf } = require('../services/pdf-generator');
 const requireAuth = require('../middleware/auth');
+const { RULES } = require('../rules/genealogy-rules');
 
 const router = express.Router();
+
+// Export filter — the master rulebook decides what is good enough for the customer
+const exportable = (a) =>
+  a.confidence_score >= RULES.export.minConfidencePercent || a.confidence_level === 'Customer Data';
 
 // Download PDF fan chart
 router.get('/pdf/:id', requireAuth, async (req, res) => {
@@ -16,7 +21,7 @@ router.get('/pdf/:id', requireAuth, async (req, res) => {
     if (ancestors.length === 0) return res.status(400).send('No ancestors found — research may still be running.');
 
     // Map DB ancestors to the format expected by the PDF generator
-    const pdfAncestors = ancestors.filter(a => a.confidence_score >= 50 || a.confidence_level === 'Customer Data').map(a => ({
+    const pdfAncestors = ancestors.filter(exportable).map(a => ({
       ascendancy_number: a.ascendancy_number,
       name: a.name,
       birth_date: a.birth_date,
@@ -48,7 +53,7 @@ router.get('/pdf/:id/preview', requireAuth, async (req, res) => {
     const ancestors = db.getAncestors(req.params.id);
     if (ancestors.length === 0) return res.status(400).send('No ancestors found — research may still be running.');
 
-    const pdfAncestors = ancestors.filter(a => a.confidence_score >= 50 || a.confidence_level === 'Customer Data').map(a => ({
+    const pdfAncestors = ancestors.filter(exportable).map(a => ({
       ascendancy_number: a.ascendancy_number,
       name: a.name,
       birth_date: a.birth_date,

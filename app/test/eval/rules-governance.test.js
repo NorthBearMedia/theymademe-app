@@ -41,6 +41,19 @@ check('getConfidenceLevel(probable cutoff) = Probable', engine.getConfidenceLeve
 check('getConfidenceLevel(possible cutoff) = Possible', engine.getConfidenceLevel(L.possible) === 'Possible');
 check('getConfidenceLevel(below suggested) = Not Found', engine.getConfidenceLevel(L.suggested - 1) === 'Not Found');
 
+// 2b. The unified minimum-primary-sources ladder tracks the rulebook.
+const S = RULES.sources;
+check('ladder: shallow gen + common surname = base+surcharge',
+  engine.minPrimarySourcesFor(2, 1900, 'smith', false, false) === S.minPrimaryShallowGen + S.commonSurnameExtraPrimary);
+check('ladder: deep gen + common surname = deep base+surcharge',
+  engine.minPrimarySourcesFor(4, 1900, 'smith', false, false) === S.minPrimaryDeepGen + S.commonSurnameExtraPrimary);
+check('ladder: very deep gen drops the common-surname surcharge',
+  engine.minPrimarySourcesFor(5, 1900, 'smith', false, false) === S.minPrimaryDeepGen);
+check('ladder: pre-civil-registration needs none',
+  engine.minPrimarySourcesFor(2, 1800, 'smith', false, false) === 0);
+check('ladder: distant county raises the floor',
+  engine.minPrimarySourcesFor(2, 1900, 'wood', true, true) === S.distantLocationMinPrimary);
+
 // 3. AI prompt embeds the rulebook.
 check('AI system prompt embeds the rulebook text', SYSTEM_PROMPT.includes(RULES_TEXT));
 check('AI system prompt references the rulebook version+hash', SYSTEM_PROMPT.includes(`v${RULES_VERSION}`) && SYSTEM_PROMPT.includes(RULES_HASH));

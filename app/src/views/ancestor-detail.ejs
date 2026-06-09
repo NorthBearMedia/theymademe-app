@@ -53,8 +53,9 @@
             <% } %>
         </div>
         <%
-          var badgeColor = ancestor.confidence_score >= 90 ? '#155724' : ancestor.confidence_score >= 75 ? '#1a5276' : ancestor.confidence_score >= 50 ? '#856404' : '#721c24';
-          var badgeBg = ancestor.confidence_score >= 90 ? '#d4edda' : ancestor.confidence_score >= 75 ? '#d6eaf8' : ancestor.confidence_score >= 50 ? '#fff3cd' : '#f8d7da';
+          // Cutoffs come from the master rulebook (injected by server.js)
+          var badgeColor = ancestor.confidence_score >= confidenceCutoffs.verified ? '#155724' : ancestor.confidence_score >= confidenceCutoffs.probable ? '#1a5276' : ancestor.confidence_score >= confidenceCutoffs.possible ? '#856404' : '#721c24';
+          var badgeBg = ancestor.confidence_score >= confidenceCutoffs.verified ? '#d4edda' : ancestor.confidence_score >= confidenceCutoffs.probable ? '#d6eaf8' : ancestor.confidence_score >= confidenceCutoffs.possible ? '#fff3cd' : '#f8d7da';
         %>
         <div style="display:flex;gap:8px;align-items:center;">
             <span style="display:inline-block;padding:6px 16px;border-radius:12px;font-size:14px;font-weight:700;background:<%= badgeBg %>;color:<%= badgeColor %>;">
@@ -191,7 +192,10 @@
             </tr>
         </table>
         <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
-            55+ pts = Verified (90-95%) &bull; 35-54 = Probable (75-89%) &bull; 15-34 = Possible (50-74%) &bull; 5-14 = Suggested (30-49%)
+            <%= confidencePoints.verified %>+ pts = Verified (<%= confidenceCutoffs.verified %>%+) &bull;
+            <%= confidencePoints.probable %>-<%= confidencePoints.verified - 1 %> = Probable (<%= confidenceCutoffs.probable %>-<%= confidenceCutoffs.verified - 1 %>%) &bull;
+            <%= confidencePoints.possible %>-<%= confidencePoints.probable - 1 %> = Possible (<%= confidenceCutoffs.possible %>-<%= confidenceCutoffs.probable - 1 %>%) &bull;
+            <%= confidencePoints.suggested %>-<%= confidencePoints.possible - 1 %> = Suggested
         </div>
     </div>
 </div>

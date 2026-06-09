@@ -38,6 +38,30 @@ Run the guard: `node app/test/eval/rules-governance.test.js`
 
 ---
 
+## Changelog — v2.1.0 (full-stack governance pass)
+
+Every stage now reads the rulebook — no duplicated thresholds anywhere:
+
+- **One source ladder.** The minimum-primary-sources policy (by generation,
+  common surname, distant county, pre-1837) is now a single rulebook-driven
+  helper (`minPrimarySourcesFor`) used by direct search (father + mother) and
+  spouse triangulation — previously three separately hard-coded ladders.
+- **Estimates unified** (resolves R2): father −28 / mother −26 everywhere;
+  marriage-based father estimates use `fatherAgeAtMarriageYears` (25). Phase 1
+  estimates are now sex-specific.
+- **Exports governed**: PDF + GEDCOM include only `export.minConfidencePercent`
+  (50, "Possible or better") — was hard-coded in three places.
+- **Admin UI governed**: confidence badges, legends, fan chart and tree-card
+  colours read the injected rulebook cutoffs — labels can no longer drift.
+- **Manual candidate selection** now uses the rulebook's level cutoffs and
+  `autoAcceptPercent` (75) instead of a looser `>50` auto-accept.
+- **Dead code removed** (~1,600 lines): the superseded 6-step discovery
+  pipeline (processAncestor et al.) was unreachable from `run()` and has been
+  deleted — one engine, one pipeline (resolves R5's ambiguity).
+- **Ops**: production refuses to boot with the default SESSION_SECRET; running
+  jobs now have a progress heartbeat and are flagged "stalled" in the admin UI
+  if the engine dies silently.
+
 ## Changelog — v2.0.0 (oracle pass)
 
 Values authored from genealogical first principles (demography, the Genealogical
@@ -55,15 +79,15 @@ Proof Standard, UK records reality):
 
 ## ⚠ REVIEW — remaining items for a human to decide on
 
-- **R2 — Father/mother estimate not unified in every inline path.** The
-  governed fallback is father −28 / mother −26, but a few discovery paths still
-  inline −25. Low impact (the estimate is only a search centre with a ±5–8yr
-  window), but worth tidying for consistency.
-- **R4 — Common-surname source escalation is uneven** across Phase 1 / Phase 2 /
-  direct search. Consider routing all of it through
-  `sources.commonSurnameExtraPrimary` for one consistent policy.
-- **R5 — Not every constant is rulebook-governed yet.** Still hard-coded:
-  Strategy-2 direct-search `minSources` ladder, FreeBMD client score weights,
-  and the inline −25 estimate in R2.
+- **R4 (residual) — Phase 1 common-surname check.** Phase 1 linking requires a
+  flat 2+ primary sources for common surnames; Phase 2 uses the governed ladder.
+  These now agree numerically (shallow base 2), but Phase 1 doesn't apply the
+  +1 surcharge. Acceptable: Phase 1 links *customer-stated* people (identity is
+  already known), so the surcharge is less necessary there.
+- **R6 — FreeBMD client internal match weights** (surname +40, forenames +30,
+  etc.) remain in freebmd-client.js; the confirmation *thresholds* are governed.
+  Migrate the weights only if you intend to tune them.
+
+(R1, R2, R3, R5 — resolved in v2.0.0/v2.1.0.)
 
 To change any value, edit `genealogy-rules.js` and bump `version` — you own the rules.

@@ -7,6 +7,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/admin/static/admin.css">
+    <script>
+      // Master rulebook confidence cutoffs (v<%= typeof rulesVersion !== 'undefined' ? rulesVersion : '?' %>) —
+      // injected server-side so client charts can never drift from the rules.
+      window.CONFIDENCE_CUTOFFS = <%- JSON.stringify(typeof confidenceCutoffs !== 'undefined' ? confidenceCutoffs : { verified: 90, probable: 75, possible: 50, suggested: 25 }) %>;
+    </script>
 </head>
 <body>
     <nav class="admin-nav">

@@ -30,6 +30,14 @@
         <div class="flash-error" style="margin-top:12px;"><%= job.error_message %></div>
     <% } %>
 
+    <% if (typeof jobStalled !== 'undefined' && jobStalled) { %>
+        <div class="flash-error" style="margin-top:12px;">
+            ⚠ This job is marked as running but has made no progress for over 10 minutes —
+            the research engine has probably crashed silently. Check the server logs, then
+            use "Reject &amp; Re-Research" on an ancestor (or re-begin the job) to restart it.
+        </div>
+    <% } %>
+
     <% if (job.status === 'running') { %>
         <div id="fan-progress" style="margin-top:12px;">
             <div style="background:#e8e8e8;border-radius:8px;height:24px;overflow:hidden;margin-bottom:8px;">
@@ -98,9 +106,9 @@
     <div id="fan-view-container" style="display:none;">
         <div id="fan-chart-container" class="fan-chart-wrap"></div>
         <div class="fan-legend">
-            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d4edda;"></div> Verified (90+%)</div>
-            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d6eaf8;"></div> Probable (75-89%)</div>
-            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fff3cd;"></div> Possible (50-74%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d4edda;"></div> Verified (<%= confidenceCutoffs.verified %>+%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#d6eaf8;"></div> Probable (<%= confidenceCutoffs.probable %>-<%= confidenceCutoffs.verified - 1 %>%)</div>
+            <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fff3cd;"></div> Possible (<%= confidenceCutoffs.possible %>-<%= confidenceCutoffs.probable - 1 %>%)</div>
             <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#e8daef;"></div> Customer Data</div>
             <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#fce4ec;"></div> Suggested</div>
             <div class="fan-legend-item"><div class="fan-legend-swatch" style="background:#f0e8da;"></div> Empty</div>

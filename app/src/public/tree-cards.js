@@ -19,9 +19,10 @@
     var s = a.confidence_score || 0;
     var lvl = (a.confidence_level || '').toLowerCase().replace(/\s+/g, '_');
     if (lvl === 'customer_data') return COLORS.customer_data;
-    if (s >= 90) return COLORS.verified;
-    if (s >= 75) return COLORS.probable;
-    if (s >= 50) return COLORS.possible;
+    var C = window.CONFIDENCE_CUTOFFS || { verified: 90, probable: 75, possible: 50 };
+    if (s >= C.verified) return COLORS.verified;
+    if (s >= C.probable) return COLORS.probable;
+    if (s >= C.possible) return COLORS.possible;
     if (s > 0 || a.fs_person_id) return COLORS.suggested;
     return COLORS.empty;
   }

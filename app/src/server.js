@@ -6,6 +6,14 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const config = require('./config');
 const db = require('./services/database');
+const { RULES, RULES_VERSION, RULES_HASH } = require('./rules/genealogy-rules');
+
+// Refuse to start in production with the default session secret — predictable
+// sessions would let anyone forge an admin login.
+if (config.NODE_ENV === 'production' && (!config.SESSION_SECRET || config.SESSION_SECRET === 'change-me-in-production')) {
+  console.error('FATAL: SESSION_SECRET is not set (or still the default) in production. Set a strong SESSION_SECRET env var.');
+  process.exit(1);
+}
 
 // Routes
 const adminRoutes = require('./routes/admin');
@@ -80,6 +88,20 @@ const fs = require('fs');
 const layoutPath = path.join(__dirname, 'views', 'layout.ejs');
 const layoutTemplate = fs.readFileSync(layoutPath, 'utf-8');
 
+// Every admin view gets the master rulebook's confidence cutoffs so UI labels,
+// badges and legends can never drift from the rules the engine actually uses.
+const rulesLocals = {
+  confidenceCutoffs: RULES.confidence.levelCutoffs,
+  confidencePoints: {
+    verified: RULES.confidence.verifiedMinPoints,
+    probable: RULES.confidence.probableMinPoints,
+    possible: RULES.confidence.possibleMinPoints,
+    suggested: RULES.confidence.suggestedMinPoints,
+  },
+  rulesVersion: RULES_VERSION,
+  rulesHash: RULES_HASH,
+};
+
 const originalRender = express.response.render;
 app.use((req, res, next) => {
   const _render = res.render.bind(res);
@@ -87,9 +109,10 @@ app.use((req, res, next) => {
     if (view === 'login' || view === 'terms') {
       return _render(view, locals);
     }
+    const merged = { ...rulesLocals, ...locals };
     const viewPath = path.join(__dirname, 'views', view + '.ejs');
-    const viewContent = ejs.render(fs.readFileSync(viewPath, 'utf-8'), { ...locals, filename: viewPath });
-    const html = ejs.render(layoutTemplate, { ...locals, content: viewContent, filename: layoutPath });
+    const viewContent = ejs.render(fs.readFileSync(viewPath, 'utf-8'), { ...merged, filename: viewPath });
+    const html = ejs.render(layoutTemplate, { ...merged, content: viewContent, filename: layoutPath });
     res.send(html);
   };
   next();
