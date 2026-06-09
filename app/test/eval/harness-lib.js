@@ -60,7 +60,12 @@ function reportAccuracy(db, jobId, groundTruth, generations, name) {
     const got = byAsc[asc];
     const isCustomer = asc <= 3;
     let status, detail = '';
-    if (!got || !got.name) { status = 'MISSING'; }
+    if (truth.empty) {
+      // The PDF/answer key says this slot is UNKNOWN (e.g. illegitimacy).
+      // The engine must NOT fabricate someone here.
+      if (!got || !got.name) { status = 'CORRECT'; detail = '(correctly left empty)'; }
+      else { status = 'WRONG'; detail = `FABRICATED: ${got.name} b.${got.birth_date || '?'} [${got.confidence_level} ${got.confidence_score}]`; }
+    } else if (!got || !got.name) { status = 'MISSING'; }
     else {
       const nm = nameMatch(got, truth);
       const gy = yr(got.birth_date);
@@ -69,10 +74,10 @@ function reportAccuracy(db, jobId, groundTruth, generations, name) {
       detail = `${got.name} b.${got.birth_date || '?'} ${got.birth_place || '?'} [${got.confidence_level} ${got.confidence_score}]`;
       if (status === 'WRONG') detail += `  (nameMatch=${nm} yearMatch=${ym})`;
     }
-    rows.push(`  #${String(asc).padStart(2)} ${status.padEnd(8)} want ${truth.given} ${truth.surname} b.${truth.year} → ${detail}`);
+    rows.push(`  #${String(asc).padStart(2)} ${status.padEnd(8)} want ${truth.empty ? '[EMPTY — unknown in answer key]' : `${truth.given} ${truth.surname} b.${truth.year}`} → ${detail}`);
     if (!isCustomer) {
       discoverableTotal++;
-      if (status === 'CORRECT') { correct++; if (got) scoresCorrect.push(got.confidence_score); }
+      if (status === 'CORRECT') { correct++; if (got && !truth.empty) scoresCorrect.push(got.confidence_score); }
       else if (status === 'WRONG') { wrong++; wrongRows.push({ asc, got, truth }); if (got) scoresWrong.push(got.confidence_score); }
       else missing++;
     }
@@ -94,7 +99,7 @@ function reportAccuracy(db, jobId, groundTruth, generations, name) {
   console.log(`  Avg confidence — correct: ${avg(scoresCorrect)}  | wrong: ${avg(scoresWrong)}`);
   if (wrong) {
     console.log(`\n  ⚠ FALSE MATCHES (engine confidently wrong = worst failure):`);
-    for (const w of wrongRows) console.log(`     #${w.asc}: got "${w.got.name}" (${w.got.birth_place}) — should be ${w.truth.given} ${w.truth.surname}`);
+    for (const w of wrongRows) console.log(`     #${w.asc}: got "${w.got.name}" (${w.got.birth_place}) — should be ${w.truth.empty ? 'EMPTY (unknown in answer key)' : `${w.truth.given} ${w.truth.surname}`}`);
   }
   const result = { discoverable: discoverableTotal, correct, wrong, missing, precision, recall };
   console.log(`\nRESULT ${JSON.stringify(result)}`);

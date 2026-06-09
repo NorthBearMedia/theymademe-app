@@ -20,7 +20,7 @@
 const crypto = require('crypto');
 
 const RULES = {
-  version: '2.1.0',
+  version: '2.2.0',
 
   // ── Parent→child birth-year gap (SEX-SPECIFIC) ─────────────────────────
   // A parent is born this many years before their child. Bounds differ by sex
@@ -75,8 +75,14 @@ const RULES = {
     deepFromGen: 4,
     veryDeepFromGen: 5,         // at/after this generation the common-surname surcharge no longer applies (records too sparse)
     commonSurnameExtraPrimary: 1, // common surnames (without a known given name) need one MORE than the base
-    distantLocationMinPrimary: 3, // a parent in a distant county needs this many (industrial-era migration was common)
+    distantLocationMinPrimary: 3, // a DIRECT-SEARCH parent in a distant county needs this many (name-match alone is weak)
     distantLocationMinPrimaryDeepGen: 2, // deep generations: distant still needs more than base, but records are sparser
+    // TREE-LINKED parents are different: the tree link is itself relationship
+    // evidence, and families really did migrate (e.g. London→Derby). A distant
+    // or foreign-born tree parent needs documentary proof, but not the full
+    // direct-search escalation.
+    distantTreeParentMinPrimary: 2,
+    immigrantTreeParentMinPrimary: 2, // non-UK-born tree parent (documented immigrant) needs this many
     preCivilRegistrationYear: 1837, // before this, civil records don't exist — accept tree leads
   },
 
@@ -143,6 +149,13 @@ const RULES = {
     treeParentsVerifiedBonus: 8,
     directSearchVerifiedBonus: 8,
     treeParentsUnverifiedBonus: 3,
+    // GENEALOGICAL LINKAGE RULE (Genealogical Proof Standard): a direct-search
+    // FATHER may only be accepted when something actually LINKS him to the
+    // child — a known given name (customer data, notes, or the child's own
+    // record naming him) or a FreeBMD triangulation. Surname + era + place
+    // similarity alone is NEVER sufficient: that is how illegitimate ancestors
+    // (whose father is genuinely unknown) get a stranger fabricated into the slot.
+    fatherDirectSearchRequiresNameEvidence: true,
   },
 
   // ── FreeBMD confirmation score thresholds ──────────────────────────────

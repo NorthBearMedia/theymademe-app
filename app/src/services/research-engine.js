@@ -1561,11 +1561,15 @@ class ResearchEngine {
       valid = false;
     }
 
-    // UK location check — reject clearly non-UK parents
+    // UK location check. A non-UK birthplace on a TREE-LINKED parent is not an
+    // automatic rejection — immigrant ancestors are real (rulebook: a non-UK
+    // tree parent needs immigrantTreeParentMinPrimary documentary sources).
+    // We flag it here and let the caller apply the source gate.
+    let nonUk = false;
     const parentPlace = sanitizePlaceName(parent.birthPlace || parent.deathPlace || '');
     if (parentPlace && isNonUkPlace(parentPlace) && !isUkPlace(parentPlace)) {
-      reasons.push(`Non-UK location: ${parentPlace}`);
-      valid = false;
+      nonUk = true;
+      reasons.push(`Non-UK location: ${parentPlace} — immigrant ancestor, needs documentary sources`);
     } else if (parentPlace) {
       reasons.push(`Location: ${parentPlace}`);
     }
@@ -1594,7 +1598,7 @@ class ResearchEngine {
       }
     }
 
-    return { valid, reasons, locationProximity };
+    return { valid, reasons, locationProximity, nonUk };
   }
 
   // ─── Build Known Anchors From Input ───────────────────────────────
@@ -2275,10 +2279,14 @@ class ResearchEngine {
               const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
               console.log(`[Engine] asc#${fatherAsc}: Sources: ${srcVerify.sources.length} total, ${srcVerify.primaryCount} primary → ${discoveryMethod}`);
 
-              // Distant parents need much stronger evidence (4+ primary sources)
-              // People did move but it was rare — require strong proof
-              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantLocationMinPrimary) {
-                console.log(`[Engine] asc#${fatherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
+              // A tree LINK is relationship evidence, so distant/foreign-born
+              // tree parents need documentary proof but not the full
+              // direct-search escalation (rulebook: distantTreeParentMinPrimary /
+              // immigrantTreeParentMinPrimary). Families really did migrate.
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantTreeParentMinPrimary) {
+                console.log(`[Engine] asc#${fatherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need ${RULES.sources.distantTreeParentMinPrimary}+)`);
+              } else if (validation.nonUk && srcVerify.primaryCount < RULES.sources.immigrantTreeParentMinPrimary) {
+                console.log(`[Engine] asc#${fatherAsc}: REJECTED — non-UK birthplace with only ${srcVerify.primaryCount} primary sources (need ${RULES.sources.immigrantTreeParentMinPrimary}+ for an immigrant ancestor)`);
               } else {
 
               storedAscNumbers.add(fatherAsc);
@@ -2344,9 +2352,12 @@ class ResearchEngine {
               const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
               console.log(`[Engine] asc#${motherAsc}: Sources: ${srcVerify.sources.length} total, ${srcVerify.primaryCount} primary → ${discoveryMethod}`);
 
-              // Distant parents need much stronger evidence (4+ primary sources)
-              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantLocationMinPrimary) {
-                console.log(`[Engine] asc#${motherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need 4+)`);
+              // Tree link = relationship evidence: distant/foreign-born tree
+              // parents need documentary proof, not the direct-search escalation.
+              if (validation.locationProximity === 'distant' && srcVerify.primaryCount < RULES.sources.distantTreeParentMinPrimary) {
+                console.log(`[Engine] asc#${motherAsc}: REJECTED — distant location with only ${srcVerify.primaryCount} primary sources (need ${RULES.sources.distantTreeParentMinPrimary}+)`);
+              } else if (validation.nonUk && srcVerify.primaryCount < RULES.sources.immigrantTreeParentMinPrimary) {
+                console.log(`[Engine] asc#${motherAsc}: REJECTED — non-UK birthplace with only ${srcVerify.primaryCount} primary sources (need ${RULES.sources.immigrantTreeParentMinPrimary}+ for an immigrant ancestor)`);
               } else {
 
               storedAscNumbers.add(motherAsc);
@@ -2557,6 +2568,26 @@ class ResearchEngine {
                     continue;
                   }
 
+                  // GENEALOGICAL LINKAGE RULE (rulebook): a direct-search father
+                  // must be LINKED to the child by name evidence (known given
+                  // name from customer/notes/child's record) or a FreeBMD
+                  // triangulation. Surname + era + place alone is never enough —
+                  // that is how a stranger gets fabricated into the slot of an
+                  // illegitimate child's genuinely-unknown father.
+                  if (RULES.discovery.fatherDirectSearchRequiresNameEvidence && !knownGivenName && !srcVerify.authFailed) {
+                    let freebmdLinked = false;
+                    const candLinkBY = normalizeDate(cand.birthDate)?.year;
+                    if (this.freebmdSource && candLinkBY && candLinkBY >= 1837 && candLinkBY <= 1983) {
+                      try {
+                        freebmdLinked = (await this.confirmWithFreeBMD(cand.name, candLinkBY, cand.birthPlace || childBirthPlace, null, fatherAsc)).bonusScore > 0;
+                      } catch (e) { /* FreeBMD unavailable — no link */ }
+                    }
+                    if (!freebmdLinked) {
+                      console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — no name evidence links him to ${childRec.name} (linkage rule), SKIP`);
+                      continue;
+                    }
+                  }
+
                   // Validate
                   const validation = this.validateTreeParent(
                     { ...cand, birthDate: cand.birthDate, deathDate: cand.deathDate, birthPlace: cand.birthPlace, deathPlace: cand.deathPlace },
@@ -2564,6 +2595,10 @@ class ResearchEngine {
                   );
                   if (!validation.valid) {
                     console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — validation failed: ${validation.reasons.join('; ')}`);
+                    continue;
+                  }
+                  if (validation.nonUk) {
+                    console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — non-UK birthplace on a direct-search candidate, SKIP`);
                     continue;
                   }
 
@@ -2765,6 +2800,10 @@ class ResearchEngine {
                     console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — validation failed: ${validation.reasons.join('; ')}`);
                     continue;
                   }
+                  if (validation.nonUk) {
+                    console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — non-UK birthplace on a direct-search candidate, SKIP`);
+                    continue;
+                  }
 
                   const discoveryMethod = srcVerify.authFailed ? 'direct_search_unverified' : 'direct_search_verified';
                   const srcSummary = srcVerify.classifications.map(c => `${c.category}: ${c.title}`).join(' | ');
@@ -2929,6 +2968,12 @@ class ResearchEngine {
                   );
                   if (!validation.valid) {
                     console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — validation failed: ${validation.reasons.join('; ')}`);
+                    continue;
+                  }
+                  // Marriage link = relationship evidence — a non-UK-born spouse
+                  // is acceptable as a documented immigrant if source-backed.
+                  if (validation.nonUk && srcVerify.primaryCount < RULES.sources.immigrantTreeParentMinPrimary) {
+                    console.log(`[Engine] asc#${motherAsc}:   spouse ${spouse.name} (${spouse.id}) — non-UK birthplace with only ${srcVerify.primaryCount} primary sources, SKIP`);
                     continue;
                   }
 
@@ -3498,7 +3543,7 @@ class ResearchEngine {
               if (treeParents.father && !storedAscNumbers.has(fatherAsc) && fatherAsc <= maxAsc) {
                 const father = treeParents.father;
                 const validation = this.validateTreeParent(father, childRec, 'Male');
-                if (validation.valid) {
+                if (validation.valid && !validation.nonUk) {
                   this.storeOrUpdateAncestor(fatherAsc, parentGen, {
                     name: father.name || '', gender: 'Male',
                     birth_date: father.birthDate || '', birth_place: sanitizePlaceName(father.birthPlace || ''),
@@ -3523,7 +3568,7 @@ class ResearchEngine {
               if (treeParents.mother && !storedAscNumbers.has(motherAsc) && motherAsc <= maxAsc) {
                 const mother = treeParents.mother;
                 const validation = this.validateTreeParent(mother, childRec, 'Female');
-                if (validation.valid) {
+                if (validation.valid && !validation.nonUk) {
                   this.storeOrUpdateAncestor(motherAsc, parentGen, {
                     name: mother.name || '', gender: 'Female',
                     birth_date: mother.birthDate || '', birth_place: sanitizePlaceName(mother.birthPlace || ''),

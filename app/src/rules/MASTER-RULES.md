@@ -38,6 +38,29 @@ Run the guard: `node app/test/eval/rules-governance.test.js`
 
 ---
 
+## Changelog — v2.2.0 (validated against the customer's REAL family tree)
+
+The engine was tested against the real Ahlfors-Hunt fan-chart PDF (both
+halves, 56 discoverable ancestors + planted decoys) and fixed until it scored
+**100% precision / 100% recall on both halves**. Three rules were learned from
+real failures:
+
+- **Tree-linked ≠ direct-search evidence.** A tree LINK is itself relationship
+  evidence, so a distant-county tree parent needs `distantTreeParentMinPrimary`
+  (2) documentary sources, not the direct-search escalation (3). The old rule
+  silently erased a whole real London→Derby migration branch (8 of 28 real
+  ancestors).
+- **Immigrant ancestors are real.** A non-UK-born TREE-LINKED parent (e.g. the
+  real Hans Jonsson Ahlfors, b. Anderslöv, Sweden) is accepted with
+  `immigrantTreeParentMinPrimary` (2) primary sources instead of being
+  hard-rejected by the UK filter. Direct-search candidates with non-UK
+  birthplaces are still rejected.
+- **Genealogical Linkage Rule (illegitimacy protection).** A direct-search
+  FATHER may only be accepted when name evidence links him to the child (known
+  given name or FreeBMD triangulation). Surname + era + place alone is NEVER
+  sufficient — the real tree has an illegitimate ancestor (father genuinely
+  unknown) and the engine must leave that slot empty, not fabricate a stranger.
+
 ## Changelog — v2.1.0 (full-stack governance pass)
 
 Every stage now reads the rulebook — no duplicated thresholds anywhere:
