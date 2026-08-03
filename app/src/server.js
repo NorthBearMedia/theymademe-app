@@ -34,7 +34,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
-  strictTransportSecurity: false, // Disable HSTS — we need HTTP to work during SSL bootstrap
+  strictTransportSecurity: { maxAge: 31536000 }, // 1 year; nginx 301s HTTP → HTTPS
 }));
 
 // Logging
@@ -58,7 +58,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Allow session cookies over HTTP (needed during SSL bootstrap)
+    secure: true, // HTTPS only; requires trust proxy since nginx terminates TLS
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     sameSite: 'lax',
