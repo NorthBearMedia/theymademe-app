@@ -41,6 +41,14 @@ services:
       - GENI_CLIENT_ID=${GENI_CLIENT_ID:-}
       - GENI_CLIENT_SECRET=${GENI_CLIENT_SECRET:-}
       - GENI_REDIRECT_URI=${GENI_REDIRECT_URI:-}
+      - INTAKE_SECRET=${INTAKE_SECRET:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - MAIL_FROM=${MAIL_FROM:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATA_DIR=/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
