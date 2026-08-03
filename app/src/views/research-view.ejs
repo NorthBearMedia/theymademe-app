@@ -22,12 +22,30 @@
                 <a href="/admin/export/pdf/<%= job.id %>/preview" target="_blank" class="btn btn-primary btn-sm">Preview PDF</a>
                 <a href="/admin/export/pdf/<%= job.id %>" class="btn btn-primary btn-sm">Download PDF</a>
                 <a href="/admin/export/gedcom/<%= job.id %>" class="btn btn-secondary btn-sm">GEDCOM</a>
+                <% if (job.delivered_at) { %>
+                    <span class="badge badge-success" title="Delivered <%= job.delivered_at %>">&#9993; Delivered</span>
+                <% } else if (typeof mailerAvailable !== 'undefined' && mailerAvailable && job.customer_email) { %>
+                    <form action="/admin/research/<%= job.id %>/deliver" method="POST" style="display:inline;"
+                          onsubmit="return confirm('Email the finished tree PDF to <%= job.customer_email %>?');">
+                        <button type="submit" class="btn btn-sm" style="background:#166534;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">&#9993; Send to Customer</button>
+                    </form>
+                <% } else { %>
+                    <span class="badge badge-warning" title="<%= job.customer_email ? 'Set SMTP_HOST/SMTP_USER/SMTP_PASS to enable email delivery' : 'No customer email on this job' %>">&#9993; Email not configured</span>
+                <% } %>
             <% } %>
         </div>
     </div>
 
     <% if (job.status === 'failed' && job.error_message) { %>
         <div class="flash-error" style="margin-top:12px;"><%= job.error_message %></div>
+    <% } %>
+
+    <% if (job.status === 'completed' && job.results && job.results.guarantee_met === false) { %>
+        <div class="flash-error" style="margin-top:12px;">
+            ⚠ Refund guarantee: only <%= job.results.generations_complete %> complete generation(s) found —
+            below the "at least 3 generations" promise on the website. Review before delivering,
+            and consider offering the customer a refund if the tree can't be improved.
+        </div>
     <% } %>
 
     <% if (typeof jobStalled !== 'undefined' && jobStalled) { %>

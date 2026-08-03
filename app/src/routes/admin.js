@@ -62,11 +62,16 @@ router.get('/', requireAuth, (req, res) => {
     j.completion = { accepted: acceptedCount, total: totalSlots };
   }
 
+  const mailer = require('../services/mailer');
   res.render('dashboard', {
     fsConnected: !!tokenData,
+    // Tree traversal (the engine's main discovery method) needs an AUTHENTICATED
+    // token; search-only tokens silently degrade research quality.
+    fsTreeAccess: oauth.isAuthenticated(),
     tokenData,
     geniConnected: !!geniToken,
     geniConfigured: !!(config.GENI_CLIENT_ID && config.GENI_CLIENT_SECRET),
+    mailerConfigured: mailer.isAvailable(),
     stats,
     recentJobs,
   });

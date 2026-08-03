@@ -84,6 +84,9 @@ function initialize() {
   if (!hasColumn('research_jobs', 'last_progress_at')) {
     conn.exec(`ALTER TABLE research_jobs ADD COLUMN last_progress_at DATETIME`);
   }
+  if (!hasColumn('research_jobs', 'delivered_at')) {
+    conn.exec(`ALTER TABLE research_jobs ADD COLUMN delivered_at DATETIME`);
+  }
   if (!hasColumn('research_jobs', 'progress_current')) {
     conn.exec(`ALTER TABLE research_jobs ADD COLUMN progress_current INTEGER DEFAULT 0`);
   }

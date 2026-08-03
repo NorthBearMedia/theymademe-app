@@ -1,11 +1,18 @@
 const express = require('express');
+const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../config');
 const db = require('../services/database');
+const mailer = require('../services/mailer');
 const { ResearchEngine, parseNotesForAnchors, parseNameParts } = require('../services/research-engine');
 const { buildSourceRegistry } = require('../services/source-registry');
 
 const router = express.Router();
+
+// JotForm delivers webhooks as multipart/form-data — Express's urlencoded/json
+// parsers ignore those, leaving req.body empty. multer().none() parses the
+// multipart fields (no files) and passes non-multipart requests through.
+const parseMultipart = multer().none();
 
 // ────────────────────────────────────────────────────────────────
 // Legacy JotForm Field Mapping (for /api/intake backward compat)
@@ -111,6 +118,112 @@ function formatYearRange(birthYear, birthDate, deathYear, isLiving) {
 /** Build place string "town, county" from two fields, omitting empty parts. */
 function buildPlace(town, county) {
   return [town, county].filter(Boolean).join(', ');
+}
+
+// ────────────────────────────────────────────────────────────────
+// Customer date normalization
+// ────────────────────────────────────────────────────────────────
+/**
+ * Customers type dates like "23/08/89", "01.09.59", "20.4.64", "August 1935".
+ * The research engine anchors searches on 4-digit years, so 2-digit years
+ * would silently lose the year. Normalize to a form with a 4-digit year.
+ * 2-digit years are always birth years in the past: pivot on the current year.
+ */
+function normalizeCustomerDate(s) {
+  const v = String(s || '').trim();
+  if (!v) return '';
+  // Already contains a 4-digit year — pass through unchanged
+  if (/\b\d{4}\b/.test(v)) return v;
+  // dd/mm/yy, dd.mm.yy, dd-mm-yy (day and month may be 1 or 2 digits)
+  const dmy = v.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2})$/);
+  if (dmy) {
+    const yy = parseInt(dmy[3], 10);
+    const yyyy = (2000 + yy > new Date().getFullYear()) ? 1900 + yy : 2000 + yy;
+    return `${dmy[1].padStart(2, '0')}/${dmy[2].padStart(2, '0')}/${yyyy}`;
+  }
+  // bare 2-digit year
+  const bare = v.match(/^(\d{2})$/);
+  if (bare) {
+    const yy = parseInt(bare[1], 10);
+    return String((2000 + yy > new Date().getFullYear()) ? 1900 + yy : 2000 + yy);
+  }
+  return v;
+}
+
+// ────────────────────────────────────────────────────────────────
+// LIVE JOTFORM ADAPTER (form 260414001149039 — "AI Family Tree - Your Details")
+// ────────────────────────────────────────────────────────────────
+// The live landing-page form uses JotForm's auto-generated field names
+// (q3_fullname1 as {first,middle,last}, yourDate/fathersDate as free-text,
+// whichPackage as "6 Generations — £149 (…)"). This adapter translates a live
+// submission into the spec field names the handlers below already consume.
+
+function isLiveIntakeForm(fields) {
+  return !!(fields.q3_fullname1 || fields.whichPackage || fields.q33_email31);
+}
+
+/** JotForm fullname control → {first, middle, last}; tolerates strings. */
+function nameParts(v) {
+  if (!v) return { first: '', middle: '', last: '' };
+  if (typeof v === 'object') {
+    return { first: String(v.first || '').trim(), middle: String(v.middle || '').trim(), last: String(v.last || '').trim() };
+  }
+  const parts = String(v).trim().split(/\s+/);
+  return { first: parts[0] || '', middle: parts.slice(1, -1).join(' '), last: parts.length > 1 ? parts[parts.length - 1] : '' };
+}
+
+/** "Derby, Derbyshire, England" → { town: 'Derby', county: 'Derbyshire' } */
+function splitTownCounty(v) {
+  const parts = String(v || '').split(',').map(p => p.trim()).filter(p => p && p.toLowerCase() !== 'england');
+  return { town: parts[0] || '', county: parts[1] || '' };
+}
+
+/** "6 Generations — £149 (up to 62 ancestors, 5–7 days)" → 6 */
+function packageToGenerations(v) {
+  const m = String(v || '').match(/^(\d)\s*Generations/i);
+  const g = m ? parseInt(m[1], 10) : 0;
+  return (g >= 4 && g <= 6) ? g : 6;
+}
+
+function translateLiveIntakeForm(fields) {
+  const out = { ...fields };
+  const set = (key, val) => { if (val) out[key] = val; };
+
+  const person = (prefix, nameField, dateField, placeField, genderVal) => {
+    const n = nameParts(fields[nameField]);
+    const p = splitTownCounty(str(fields, placeField));
+    set(`${prefix}_first_name`, n.first);
+    set(`${prefix}_middle_names`, n.middle);
+    set(`${prefix}_last_name_at_birth`, n.last);
+    set(`${prefix}_birth_date`, normalizeCustomerDate(str(fields, dateField)));
+    set(`${prefix}_birth_place_town`, p.town);
+    set(`${prefix}_birth_place_county`, p.county);
+    if (genderVal) set(`${prefix}_sex_at_birth`, genderVal);
+  };
+
+  // Subject (asc#1)
+  person('root', 'q3_fullname1', 'yourDate', 'q5_textbox3', str(fields, 'q6_dropdown4'));
+  // Parents (asc#2-3) — mother's form collects her MAIDEN name
+  person('root_dad', 'q8_fullname6', 'fathersDate', 'q10_textbox8', 'Male');
+  person('root_mum', 'q12_fullname10', 'mothersDate', 'q15_textbox13', 'Female');
+  // Grandparents (asc#4-7) — grandmothers' forms collect maiden names
+  person('root_pat_gf', 'q17_fullname15', 'paternalGrandfathers', 'q19_textbox17', 'Male');
+  person('root_pat_gm', 'q20_fullname18', 'paternalGrandmothers', 'q23_textbox21', 'Female');
+  person('root_mat_gf', 'q25_fullname23', 'maternalGrandfathers', 'q27_textbox25', 'Male');
+  person('root_mat_gm', 'q28_fullname26', 'maternalGrandmothers', 'q31_textbox29', 'Female');
+
+  // Contact + extras
+  const rootName = nameParts(fields.q3_fullname1);
+  set('customer_full_name', buildFullName(rootName.first, rootName.middle, rootName.last));
+  set('customer_email', str(fields, 'q33_email31'));
+  const phone = fields.q34_phone32;
+  set('customer_phone', typeof phone === 'object' ? String(phone.full || '').trim() : str(fields, 'q34_phone32'));
+  set('additional_notes', str(fields, 'q32_textarea30'));
+  set('generations', String(packageToGenerations(fields.whichPackage)));
+  set('package_choice', str(fields, 'whichPackage'));
+  out.has_children = 'No'; // live form is always single-subject
+
+  return out;
 }
 
 
@@ -499,11 +612,15 @@ function createAncestorsFromStructuredData(jobId, subject, father, mother, grand
 // ────────────────────────────────────────────────────────────────
 // POST /api/form-submission — New structured JotForm webhook
 // ────────────────────────────────────────────────────────────────
-router.post('/form-submission', requireToken, (req, res) => {
+router.post('/form-submission', parseMultipart, requireToken, (req, res) => {
   try {
     console.log('[API/FormSubmission] Received webhook payload, content-type:', req.headers['content-type']);
 
-    const fields = parseJotFormPayload(req.body);
+    let fields = parseJotFormPayload(req.body);
+    if (isLiveIntakeForm(fields)) {
+      console.log('[API/FormSubmission] Live landing-page form detected — translating field names');
+      fields = translateLiveIntakeForm(fields);
+    }
     const submissionId = fields.submissionID || fields.submission_id || '';
     const formId = fields.formID || fields.form_id || '';
 
@@ -998,13 +1115,22 @@ function handleWithoutChildrenPath(fields, ctx, res) {
 
   const jobId = uuidv4();
 
+  // Generations from the customer's package choice (live form) or spec field;
+  // defaults to 6 when absent.
+  const jobGenerations = parseInt(str(fields, 'generations'), 10) || 6;
+  if (str(fields, 'package_choice')) inputData._package_choice = str(fields, 'package_choice');
+
   db.createResearchJob({
     id: jobId,
     customer_name: customerName || root.fullName,
     customer_email: customerEmail,
-    generations: 6,
+    generations: jobGenerations,
     input_data: inputData,
   });
+
+  // Order confirmation (fire-and-forget; no-op when SMTP unconfigured)
+  mailer.sendOrderConfirmation(customerEmail, customerName || root.fullName, jobGenerations)
+    .catch(err => console.error('[API/FormSubmission] confirmation email error:', err.message));
 
   const subject = {
     fullName: root.fullName,
@@ -1252,7 +1378,7 @@ function createAncestorsFromIntake(jobId, mapped) {
 // ────────────────────────────────────────────────────────────────
 // POST /api/intake — Legacy JotForm webhook (backward compatible)
 // ────────────────────────────────────────────────────────────────
-router.post('/intake', requireToken, (req, res) => {
+router.post('/intake', parseMultipart, requireToken, (req, res) => {
   try {
     console.log('[API/Intake] Received webhook payload, content-type:', req.headers['content-type']);
 

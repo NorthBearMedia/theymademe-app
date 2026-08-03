@@ -3795,6 +3795,22 @@ class ResearchEngine {
       const possible = ancestors.filter(a => a.confidence_level === 'Possible').length;
       const suggested = ancestors.filter(a => a.confidence_level === 'Suggested').length;
 
+      // Refund-guarantee tracking: the site promises "at least 3 generations of
+      // ancestors" or a refund. Compute the deepest generation where every slot
+      // is filled to export quality (Possible-or-better, or customer data).
+      const byAscMap = new Map(ancestors.map(a => [a.ascendancy_number, a]));
+      const solid = (a) => a && (a.confidence_score >= RULES.export.minConfidencePercent || a.confidence_level === 'Customer Data');
+      let generationsComplete = 0;
+      for (let g = 1; g <= this.generations; g++) {
+        let allSolid = true;
+        for (let asc = Math.pow(2, g); asc < Math.pow(2, g + 1); asc++) {
+          if (!solid(byAscMap.get(asc))) { allSolid = false; break; }
+        }
+        if (!allSolid) break;
+        generationsComplete = g;
+      }
+      const guaranteeMet = generationsComplete >= 3;
+
       this.db.updateResearchJob(this.jobId, {
         status: 'completed',
         completed_at: new Date().toISOString(),
@@ -3804,8 +3820,13 @@ class ResearchEngine {
           probable,
           possible,
           suggested,
+          generations_complete: generationsComplete,
+          guarantee_met: guaranteeMet,
         },
       });
+      if (!guaranteeMet) {
+        console.log(`[Engine] ⚠ GUARANTEE: only ${generationsComplete} complete generation(s) — below the 3-generation refund promise`);
+      }
       this.db.updateJobProgress(this.jobId, 'Research complete', ancestors.length, ancestors.length);
 
       console.log(`\n[Engine] ════════════════════════════════════════════════`);

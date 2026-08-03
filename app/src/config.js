@@ -36,6 +36,13 @@ module.exports = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
 
+  // Email (transactional — order confirmation + tree delivery)
+  SMTP_HOST: process.env.SMTP_HOST || '',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  MAIL_FROM: process.env.MAIL_FROM || 'They Made Me <hello@theymademe.co.uk>',
+
   // Paths
   DATA_DIR: process.env.DATA_DIR || '/app/data',
 };

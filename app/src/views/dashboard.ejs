@@ -28,6 +28,9 @@
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
             <span class="badge badge-success">Connected</span>
             <span style="font-size:13px;color:var(--text-muted);"><%= tokenData.hours_remaining %>h remaining</span>
+            <% if (typeof fsTreeAccess !== 'undefined' && !fsTreeAccess) { %>
+                <span class="badge badge-warning" title="The current token is search-only. Tree traversal (the engine's main discovery method) will not work — reconnect via OAuth to restore full research quality.">&#9888; Search-only — reconnect for tree access</span>
+            <% } %>
         </div>
         <form action="/admin/familysearch/disconnect" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>

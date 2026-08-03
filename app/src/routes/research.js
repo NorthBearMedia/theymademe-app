@@ -743,13 +743,57 @@ router.post('/:id/ancestor/:ascNumber/apply-suggestion', requireAuth, (req, res)
   res.redirect(referer);
 });
 
+// ─── Deliver: email the finished tree PDF to the customer ─────────
+router.post('/:id/deliver', requireAuth, async (req, res) => {
+  const job = db.getResearchJob(req.params.id);
+  if (!job) return res.status(404).send('Research job not found');
+  if (job.status !== 'completed') return res.status(409).send('Research is not completed yet');
+  if (!job.customer_email) return res.status(400).send('No customer email on this job');
+
+  const mailer = require('../services/mailer');
+  if (!mailer.isAvailable()) {
+    return res.status(503).send('Email is not configured — set SMTP_HOST/SMTP_USER/SMTP_PASS env vars');
+  }
+
+  try {
+    const { generateFanChartPdf } = require('../services/pdf-generator');
+    const ancestors = db.getAncestors(req.params.id)
+      .filter(a => a.confidence_score >= RULES.export.minConfidencePercent || a.confidence_level === 'Customer Data')
+      .map(a => ({
+        ascendancy_number: a.ascendancy_number, name: a.name,
+        birth_date: a.birth_date, birth_place: a.birth_place,
+        death_date: a.death_date, death_place: a.death_place,
+      }));
+    const pdfBytes = await generateFanChartPdf(ancestors, job.customer_name || '', job.generations || 6);
+    const filename = `${(job.customer_name || 'family-tree').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '-')}-family-tree.pdf`;
+
+    const result = await mailer.sendTreeDelivery(job.customer_email, job.customer_name, Buffer.from(pdfBytes), filename);
+    if (result.sent) {
+      db.updateResearchJob(req.params.id, { delivered_at: new Date().toISOString() });
+      console.log(`[Deliver] Sent tree for job ${req.params.id} to ${job.customer_email}`);
+    } else {
+      console.error(`[Deliver] Failed for job ${req.params.id}: ${result.error}`);
+    }
+  } catch (err) {
+    console.error(`[Deliver] Error for job ${req.params.id}:`, err);
+    return res.status(500).send('Delivery failed: ' + err.message);
+  }
+
+  res.redirect(`/admin/research/${req.params.id}`);
+});
+
 // View research results
 router.get('/:id', requireAuth, (req, res) => {
   const job = db.getResearchJob(req.params.id);
   if (!job) return res.status(404).send('Research job not found');
 
+  const mailer = require('../services/mailer');
   const ancestors = db.getAncestors(req.params.id);
-  res.render('research-view', { job, ancestors, jobStalled: db.isJobStalled(job) });
+  res.render('research-view', {
+    job, ancestors,
+    jobStalled: db.isJobStalled(job),
+    mailerAvailable: mailer.isAvailable(),
+  });
 });
 
 module.exports = router;
