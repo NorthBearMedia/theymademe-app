@@ -185,6 +185,111 @@ function packageToGenerations(v) {
   return (g >= 4 && g <= 6) ? g : 6;
 }
 
+// ────────────────────────────────────────────────────────────────
+// NEW LIVE FORM ADAPTER (form 262143774553056 — "They Made Me — Your Details")
+// ────────────────────────────────────────────────────────────────
+// The replacement intake form uses date pickers and label-derived field slugs.
+// Rather than hardcoding JotForm's auto-generated names, classify each field
+// SEMANTICALLY: person bucket from the slug text, field kind from the value
+// shape (name objects have .first, date pickers send {day,month,year}, places
+// are plain strings). Robust to slug renumbering.
+
+function jotformDateToString(v) {
+  if (!v) return '';
+  if (typeof v === 'object') {
+    const d = String(v.day || '').padStart(2, '0');
+    const m = String(v.month || '').padStart(2, '0');
+    const y = String(v.year || '');
+    if (y) return d !== '00' && m !== '00' ? `${d}/${m}/${y}` : y;
+    if (v.datetime) return String(v.datetime).split(' ')[0];
+    return '';
+  }
+  return String(v).trim();
+}
+
+function classifyNewLiveForm(fields) {
+  const people = { subject: {}, father: {}, mother: {}, patgf: {}, patgm: {}, matgf: {}, matgm: {} };
+  const extras = { email: '', phone: '', notes: '', package: '' };
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === '') continue;
+    const slug = key.replace(/^q\d+_/, '').replace(/[^a-z]/gi, '').toLowerCase();
+
+    // Non-person fields first
+    if (slug.includes('email')) { extras.email = String(value).trim(); continue; }
+    if (slug.includes('phone')) { extras.phone = typeof value === 'object' ? String(value.full || '').trim() : String(value).trim(); continue; }
+    if (slug.includes('package') || (typeof value === 'string' && /generations\s*[—-]?\s*£/i.test(value))) { extras.package = String(value); continue; }
+    if (slug.includes('anythingelse') || slug.includes('familyhistory') || slug.includes('isthere')) { extras.notes = String(value).trim(); continue; }
+
+    // Person bucket from slug (grandparents BEFORE father/mother — substrings!)
+    let bucket = null;
+    if (slug.includes('paternalgrandfather')) bucket = 'patgf';
+    else if (slug.includes('paternalgrandmother')) bucket = 'patgm';
+    else if (slug.includes('maternalgrandfather')) bucket = 'matgf';
+    else if (slug.includes('maternalgrandmother')) bucket = 'matgm';
+    else if (slug.includes('father')) bucket = 'father';
+    else if (slug.includes('mother')) bucket = 'mother';
+    else if (slug.includes('your') || slug.includes('gender')) bucket = 'subject';
+    if (!bucket) continue;
+
+    // Field kind from value shape / slug
+    if (typeof value === 'object' && (value.first || value.last)) {
+      people[bucket].name = value;
+    } else if ((typeof value === 'object' && (value.year || value.month || value.datetime)) ||
+               (slug.includes('date') && typeof value === 'string')) {
+      people[bucket].dob = jotformDateToString(value);
+    } else if (slug.includes('gender')) {
+      people[bucket].gender = String(value).trim();
+    } else if (slug.includes('place')) {
+      people[bucket].place = String(value).trim();
+    }
+  }
+  return { people, extras };
+}
+
+function isNewLiveIntakeForm(fields) {
+  if (isLiveIntakeForm(fields)) return false; // old form takes precedence
+  const { people, extras } = classifyNewLiveForm(fields);
+  return !!(people.subject.name && (extras.email || people.father.name || people.mother.name));
+}
+
+function translateNewLiveIntakeForm(fields) {
+  const { people, extras } = classifyNewLiveForm(fields);
+  const out = { ...fields };
+  const set = (key, val) => { if (val) out[key] = val; };
+
+  const person = (prefix, p, genderVal) => {
+    if (!p) return;
+    const n = nameParts(p.name);
+    const place = splitTownCounty(p.place || '');
+    set(`${prefix}_first_name`, n.first);
+    set(`${prefix}_middle_names`, n.middle);
+    set(`${prefix}_last_name_at_birth`, n.last);
+    set(`${prefix}_birth_date`, normalizeCustomerDate(p.dob || ''));
+    set(`${prefix}_birth_place_town`, place.town);
+    set(`${prefix}_birth_place_county`, place.county);
+    set(`${prefix}_sex_at_birth`, p.gender || genderVal);
+  };
+
+  person('root', people.subject, '');
+  person('root_dad', people.father, 'Male');
+  person('root_mum', people.mother, 'Female');
+  person('root_pat_gf', people.patgf, 'Male');
+  person('root_pat_gm', people.patgm, 'Female');
+  person('root_mat_gf', people.matgf, 'Male');
+  person('root_mat_gm', people.matgm, 'Female');
+
+  const rootName = nameParts(people.subject.name);
+  set('customer_full_name', buildFullName(rootName.first, rootName.middle, rootName.last));
+  set('customer_email', extras.email);
+  set('customer_phone', extras.phone);
+  set('additional_notes', extras.notes);
+  set('generations', String(packageToGenerations(extras.package)));
+  set('package_choice', extras.package);
+  out.has_children = 'No';
+  return out;
+}
+
 function translateLiveIntakeForm(fields) {
   const out = { ...fields };
   const set = (key, val) => { if (val) out[key] = val; };
@@ -618,8 +723,11 @@ router.post('/form-submission', parseMultipart, requireToken, (req, res) => {
 
     let fields = parseJotFormPayload(req.body);
     if (isLiveIntakeForm(fields)) {
-      console.log('[API/FormSubmission] Live landing-page form detected — translating field names');
+      console.log('[API/FormSubmission] Live landing-page form (legacy 260414001149039) detected — translating field names');
       fields = translateLiveIntakeForm(fields);
+    } else if (isNewLiveIntakeForm(fields)) {
+      console.log('[API/FormSubmission] New intake form (262143774553056) detected — semantic field classification');
+      fields = translateNewLiveIntakeForm(fields);
     }
     const submissionId = fields.submissionID || fields.submission_id || '';
     const formId = fields.formID || fields.form_id || '';

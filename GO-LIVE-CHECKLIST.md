@@ -1,27 +1,28 @@
 # They Made Me — Go-Live Checklist
 
-The code side of the customer journey is complete and tested. These are the
-actions that must be done **outside the repo** (dashboards + server env),
-in order. Everything here is ~an hour of clicking.
+The code side of the customer journey is complete and tested. A NEW intake
+form has already been created and enabled on the JotForm account (the old
+one was disabled), and the landing page now points at it. What remains is
+**~15 minutes of clicking**, in order.
 
-## 1. JotForm (theymademe account)
+## 1. JotForm (theymademe account) — mostly DONE
 
-- [ ] **Re-enable the intake form** `260414001149039` ("AI Family Tree - Your
-      Details") — it is currently **DISABLED**, which kills the whole funnel.
-      JotForm → My Forms → right-click the form → Enable. (If JotForm disabled
-      it for a plan limit, resolve that first.)
-- [ ] **Add the webhook**: form → Settings → Integrations → Webhooks →
-      `https://theymademe.co.uk/api/form-submission?token=<INTAKE_SECRET>`
-      (use the INTAKE_SECRET value from the server's .env). The app now parses
-      JotForm's multipart webhooks and this form's exact field names — tested
-      against your real submission.
+- [x] ~~Re-enable the intake form~~ — **replaced instead**: new form
+      **`262143774553056`** ("They Made Me — Your Details") is **live and
+      ENABLED**, with proper date pickers (no more "23/08/89" typing), the
+      package question, and a required delivery email. The landing page embed
+      now points at it. The old disabled form `260414001149039` can stay
+      disabled (its 4 old submissions are preserved); delete it when ready.
+- [ ] **Add the webhook** (the one JotForm step the API cannot do): open
+      https://www.jotform.com/build/262143774553056/settings → Integrations →
+      Webhooks → add:
+      `https://theymademe.co.uk/api/form-submission?token=7c72fb1541043668fe9564de555702d0c3abff46d2b7964b`
+      (this exact token is also referenced in §2 — the two must match).
 - [ ] **Recommended — collect payment inside the form**: add a JotForm
       **Stripe payment field** tied to the package question, so payment and
       family details arrive together (kills the pay-without-submitting /
       submit-without-paying gap). Until then, payment stays via the separate
       Stripe links on the landing page and you reconcile by email address.
-- [ ] Optional: switch the 7 free-text date questions to date pickers
-      (the app now repairs 2-digit years like "23/08/89", but pickers are cleaner).
 
 ## 2. Server environment (/opt/theymademe-app/.env)
 
@@ -33,7 +34,9 @@ in order. Everything here is ~an hour of clicking.
       "Email not configured".
 - [ ] **SESSION_SECRET** — set a strong random value. The app now refuses to
       boot in production with the default.
-- [ ] **INTAKE_SECRET** — confirm it's set (same value as in the webhook URL).
+- [ ] **INTAKE_SECRET** — set to
+      `7c72fb1541043668fe9564de555702d0c3abff46d2b7964b`
+      (the exact value already baked into the webhook URL in §1).
 - [ ] **FamilySearch PRODUCTION** (currently defaults to beta):
       `FS_AUTH_URL=https://ident.familysearch.org/cis-web/oauth2/v3/authorization`
       `FS_TOKEN_URL=https://ident.familysearch.org/cis-web/oauth2/v3/token`

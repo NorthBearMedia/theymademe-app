@@ -122,6 +122,62 @@ function check(name, cond, extra) { (cond ? pass++ : fail++); console.log(`  ${c
     // Date normalizer unit checks (via a fresh require of the api module's logic is
     // not exported; test through observed effects above + spot checks here)
     console.log('\nDate normalization observed: 23/08/89→' + input.birth_date + ', 01.09.59→' + (byAsc[2] ? byAsc[2].birth_date : '?') + ', 20.4.64→' + (byAsc[3] ? byAsc[3].birth_date : '?'));
+
+    // ── Scenario 2: the NEW intake form (262143774553056) ──
+    // Label-derived slugs + date-picker objects + name objects.
+    const rawRequestNew = {
+      q4_yourFullName: { first: 'Cally', middle: 'Ashton', last: 'Vallance' },
+      q5_yourDateOf: { day: '8', month: '08', year: '1990' },        // date picker object
+      q6_yourPlaceOf: 'Mansfield, Nottinghamshire',
+      q7_yourGender: 'Female',
+      q9_fathersFullName: { first: 'David', middle: 'Bryan', last: 'Vallance' },
+      q10_fathersDateOf: { day: '13', month: '12', year: '1959' },
+      q11_fathersPlaceOf: 'Belper',
+      q13_mothersFullMaiden: { first: 'Julie', middle: '', last: 'Jackson' },
+      q14_mothersDateOf: { day: '30', month: '12', year: '1962' },
+      q15_mothersPlaceOf: 'Belper',
+      q17_paternalGrandfathersFull: { first: 'Bryan', middle: 'Arthur', last: 'Vallance' },
+      q18_paternalGrandfathersDate: { day: '', month: '', year: '1932' },
+      q19_paternalGrandfathersPlace: 'Bakewell',
+      q20_paternalGrandmothersFull: { first: 'Dorothy', middle: '', last: 'Rowland' },
+      q21_paternalGrandmothersDate: { day: '', month: '', year: '1932' },
+      q22_paternalGrandmothersPlace: 'Alderwasley',
+      q24_maternalGrandfathersFull: { first: 'Brian', middle: '', last: 'Jackson' },
+      q25_maternalGrandfathersDate: { day: '', month: '', year: '1940' },
+      q26_maternalGrandfathersPlace: 'Pinxton',
+      q27_maternalGrandmothersFull: { first: 'Jean', middle: '', last: 'Grundy' },
+      q28_maternalGrandmothersDate: { day: '9', month: '11', year: '1942' },
+      q29_maternalGrandmothersPlace: 'Belper',
+      q31_isThereAnything: 'Family from the Amber Valley area.',
+      q32_emailAddress: 'cally@example.com',
+      q33_phoneNumber: { full: '' },
+      q3_whichPackage: '5 Generations — £125 (up to 30 ancestors, 7–10 days)',
+    };
+    const form2 = new FormData();
+    form2.append('formID', '262143774553056');
+    form2.append('submissionID', 'test-submission-2');
+    form2.append('rawRequest', JSON.stringify(rawRequestNew));
+    const resp2 = await fetch(`http://localhost:${PORT}/api/form-submission?token=${TOKEN}`, { method: 'POST', body: form2 });
+    check('NEW form webhook accepted', resp2.ok, `status=${resp2.status}`);
+
+    const conn2 = new Database(path.join(tmp, 'theymademe.sqlite'));
+    const job2 = conn2.prepare("SELECT * FROM research_jobs WHERE customer_email = 'cally@example.com'").get();
+    check('NEW form job created', !!job2);
+    if (job2) {
+      const input2 = JSON.parse(job2.input_data);
+      const anc2 = conn2.prepare('SELECT * FROM ancestors WHERE research_job_id = ? ORDER BY ascendancy_number').all(job2.id);
+      const by2 = Object.fromEntries(anc2.map(a => [a.ascendancy_number, a]));
+      check('NEW: generations = 5 from package', job2.generations === 5, `got ${job2.generations}`);
+      check('NEW: subject mapped', input2.given_name === 'Cally Ashton' && input2.surname === 'Vallance', `${input2.given_name} ${input2.surname}`);
+      check('NEW: date-picker DOB mapped (08/08/1990)', /1990/.test(input2.birth_date), input2.birth_date);
+      check('NEW: father mapped', input2.father_name === 'David Bryan Vallance', input2.father_name);
+      check('NEW: mother maiden mapped', input2.mother_name === 'Julie Jackson', input2.mother_name);
+      check('NEW: grandparents seeded (asc#4-7)', !!by2[4] && !!by2[5] && !!by2[6] && !!by2[7],
+        [4,5,6,7].map(a => by2[a] && by2[a].name).join(' | '));
+      check('NEW: year-only grandparent date kept (1932)', !!by2[4] && /1932/.test(by2[4].birth_date || ''), by2[4] && by2[4].birth_date);
+      check('NEW: notes captured', /Amber Valley/.test(input2.notes || ''));
+    }
+    conn2.close();
   } finally {
     server.kill();
     fs.rmSync(tmp, { recursive: true, force: true });
