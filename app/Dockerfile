@@ -4,8 +4,8 @@ RUN apk add --no-cache python3 make g++ wget
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --production && apk del python3 make g++
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && apk del python3 make g++
 
 COPY src/ ./src/
 
