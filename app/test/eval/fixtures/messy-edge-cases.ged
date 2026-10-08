@@ -1,0 +1,149 @@
+﻿0 HEAD
+1 SOUR PAF
+2 NAME Personal Ancestral File
+1 CHAR UTF-8
+1 _FOO whatever
+2 _BAR nested unknown tag
+0 @I1@ INDI
+1 NAME Alice Mary /Brookes/
+2 NICK Allie
+2 _MARNM Alice Smith
+1 SEX F
+1 BIRT
+2 DATE Sept 1975
+2 PLAC , Stoke-on-Trent, ,Staffordshire,
+2 SOUR @S1@
+3 DATE 2001
+1 FAMC @F1@
+1 _UID 5D2F0A4C9E7B4C1AA1
+0 @I2@ INDI
+1 NAME John Henry /Brookes/
+1 SEX M
+1 BIRT
+2 DATE ABT 1948
+2 PLAC Stoke-on-Trent, Staffordshire, England
+1 DEAT Y
+1 FAMC @F2@
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME /Hewitt/
+1 SEX F
+1 BIRT
+2 DATE BET 1950 AND 1952
+1 FAMC @F3@
+1 FAMS @F1@
+0 @I4@ INDI
+1 NAME Bill /Brookes/
+2 TYPE aka
+1 NAME William /Brookes/
+2 TYPE birth
+1 SEX M
+1 CHR2 DATE 12 MAR 1920
+2 PLAC St Peter, Hanley, Staffordshire
+1 BURI
+2 DATE 1 JAN 1990
+1 FAMC @F4@
+1 FAMS @F2@
+0 @I5@ INDI
+1 NAME Edith //
+2 _MARNM Brookes
+1 SEX F
+1 BIRT
+2 DATE 1924
+1 FAMS @F2@
+0 @I6@ INDI
+1 NAME Harold /Hewitt/
+1 SEX M
+1 BIRT
+2 DATE AFT 1918
+1 NOTE A long note that is split
+2 CONC  across two lines
+2 CONT and continues on a new line
+this line has no level number and was wrapped by a broken exporter
+1 FAMC @F5@
+1 FAMS @F3@
+0 @I7@ INDI
+1 NAME Joan /Hewitt/
+2 TYPE married
+1 NAME Joan /Parker/
+2 TYPE birth
+2 GIVN Joan
+2 SURN Parker
+1 SEX F
+1 BIRT
+2 DATE 1921
+1 FAMC @F6@
+1 FAMS @F3@
+0 @I8@ INDI
+1 NAME Leonard /Parker/
+1 SEX M
+1 BIRT
+2 DATE 1890
+1 DEAT
+2 DATE 1960
+1 FAMC @F7@
+1 FAMS @F6@
+0 @I9@ INDI
+1 NAME Ernest /Parker/
+1 SEX M
+1 BIRT
+2 DATE 1860
+1 FAMC @F8@
+1 FAMS @F7@
+0 @I10@ INDI
+1 NAME Ruth /Pegg/
+1 SEX F
+1 BIRT
+2 DATE 1893
+1 FAMS @F6@
+0 @I11@ INDI
+  1 NAME Thomas /Brookes/
+  1 sex m
+  1 birt
+  2 date Abt. 1890
+1 FAMS @F4@
+0 @I-13_x@ INDI
+1 NAME Mary Ann /Lowe/
+1 SEX F
+1 BIRT
+2 DATE ?
+1 FAMS @F4@
+0 @I12@ INDI
+1 SEX M
+1 FAMS @F99@
+0 @I12@ INDI
+1 NAME Duplicate /Record/
+0 @N1@ NOTE Free-standing note record that must be ignored
+1 CONC  entirely
+0 @S1@ SOUR
+1 TITL Staffordshire Parish Registers
+0 @F1@ FAM
+1 HUSB @I2@
+1 WIFE @I3@
+1 CHIL @I1@
+0 @F2@ FAM
+1 HUSB @I4@
+1 WIFE @I5@
+1 CHIL @I2@
+0 @F3@ FAM
+1 HUSB @I6@
+1 WIFE @I7@
+1 CHIL @I3@
+0 @F4@ FAM
+1 HUSB @I11@
+1 WIFE @I-13_x@
+1 CHIL @I4@
+0 @F6@ FAM
+1 HUSB @I8@
+1 WIFE @I10@
+1 CHIL @I7@
+0 @F7@ FAM
+1 HUSB @I9@
+1 CHIL @I8@
+0 @F8@ FAM
+1 HUSB @I8@
+1 CHIL @I9@
+0 @F9@ FAM
+1 HUSB @I404@
+1 CHIL @I1@
+0 TRLR

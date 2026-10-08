@@ -1,0 +1,372 @@
+0 HEAD
+1 SOUR Ancestry.com Family Trees
+2 NAME Ancestry.com Member Trees
+2 VERS 2026.10
+2 CORP Ancestry.com
+3 ADDR 1300 W Traverse Pkwy
+4 CITY Lehi
+4 STAE UT
+4 CTRY USA
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+1 DATE 8 Oct 2026
+1 SUBM @SUBM@
+1 _TREE Hargreaves Family Tree
+2 RIN 118203344
+2 _ENV prd
+0 @SUBM@ SUBM
+1 NAME Hargreaves Family Tree
+0 @I1@ INDI
+1 NAME Emma Louise /Hargreaves/
+2 GIVN Emma Louise
+2 SURN Hargreaves
+1 SEX F
+1 BIRT
+2 DATE 23 Aug 1989
+2 PLAC Leeds, West Yorkshire, England
+1 FAMC @F1@
+1 _APID 1,60525::0
+1 NOTE Emma researches the family on weekends. She has collected the Bradford
+2 CONC  mill records and the Keighley baptism registers
+2 CONT Second paragraph of the note: ask Aunt Karen about the Halifax photographs.
+0 @I2@ INDI
+1 NAME Thomas James /Hargreaves/
+2 GIVN Thomas James
+2 SURN Hargreaves
+1 SEX M
+1 BIRT
+2 DATE 2 Feb 1992
+2 PLAC Leeds, West Yorkshire, England
+1 FAMC @F1@
+0 @I3@ INDI
+1 NAME David John /Hargreaves/
+2 GIVN David John
+2 SURN Hargreaves
+1 SEX M
+1 BIRT
+2 DATE 4 Mar 1961
+2 PLAC Bradford, West Yorkshire, England
+1 FAMC @F2@
+1 FAMS @F1@
+0 @I4@ INDI
+1 NAME Susan Jane /Whitaker/
+2 GIVN Susan Jane
+2 SURN Whitaker
+1 NAME Susan Jane /Hargreaves/
+2 TYPE married
+2 GIVN Susan Jane
+2 SURN Hargreaves
+1 SEX F
+1 BIRT
+2 DATE 12 Nov 1963
+2 PLAC Halifax, West Yorkshire, England
+1 FAMC @F3@
+1 FAMS @F1@
+0 @I5@ INDI
+1 NAME John William /Hargreaves/
+2 GIVN John William
+2 SURN Hargreaves
+1 SEX M
+1 BIRT
+2 DATE 1 Feb 1934
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 2 Jun 2009
+2 PLAC Leeds, West Yorkshire, England
+1 FAMC @F4@
+1 FAMS @F2@
+0 @I6@ INDI
+1 NAME Margaret Ann /Hargreaves/
+2 TYPE married
+2 GIVN Margaret Ann
+2 SURN Hargreaves
+1 NAME Margaret Ann /Pickles/
+2 TYPE birth
+2 GIVN Margaret Ann
+2 SURN Pickles
+1 SEX F
+1 BIRT
+2 DATE 17 Jul 1936
+2 PLAC Keighley, West Yorkshire, England
+1 DEAT
+2 DATE 11 Sep 2015
+2 PLAC Bradford, West Yorkshire, England
+1 FAMC @F5@
+1 FAMS @F2@
+0 @I7@ INDI
+1 NAME Roland Arthur /Whitaker/
+2 GIVN Roland Arthur
+2 SURN Whitaker
+1 SEX M
+1 BIRT
+2 DATE 9 May 1930
+2 PLAC Halifax, West Yorkshire, England
+1 DEAT
+2 DATE 22 Jan 1999
+2 PLAC Halifax, West Yorkshire, England
+1 FAMC @F6@
+1 FAMS @F3@
+0 @I8@ INDI
+1 NAME Dorothy Mary /Holland/
+2 GIVN Dorothy Mary
+2 SURN Holland
+1 SEX F
+1 BIRT
+2 DATE 3 Oct 1932
+2 PLAC Huddersfield, West Yorkshire, England
+1 DEAT
+2 DATE 14 Mar 2020
+2 PLAC Halifax, West Yorkshire, England
+1 FAMC @F7@
+1 FAMS @F3@
+0 @I9@ INDI
+1 NAME Frederick /Hargreaves/
+2 GIVN Frederick
+2 SURN Hargreaves
+1 SEX M
+1 BIRT
+2 DATE 1905
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 1975
+2 PLAC Bradford, West Yorkshire, England
+1 FAMC @F8@
+1 FAMS @F4@
+0 @I10@ INDI
+1 NAME Ada Mary /Sutcliffe/
+2 GIVN Ada Mary
+2 SURN Sutcliffe
+1 SEX F
+1 BIRT
+2 DATE 12 Dec 1908
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 1990
+2 PLAC Bradford, West Yorkshire, England
+1 FAMC @F9@
+1 FAMS @F4@
+0 @I11@ INDI
+1 NAME Harold /Pickles/
+2 GIVN Harold
+2 SURN Pickles
+1 SEX M
+1 BIRT
+2 DATE 1909
+2 PLAC Keighley, West Yorkshire, England
+1 DEAT
+2 DATE 1980
+2 PLAC Keighley, West Yorkshire, England
+1 FAMC @F10@
+1 FAMS @F5@
+0 @I12@ INDI
+1 NAME Edith Mary /Barraclough/
+2 GIVN Edith Mary
+2 SURN Barraclough
+1 SEX F
+1 BIRT
+2 DATE 1911
+2 PLAC Keighley, West Yorkshire, England
+1 DEAT
+2 DATE 1999
+1 FAMS @F5@
+0 @I13@ INDI
+1 NAME Walter /Whitaker/
+2 GIVN Walter
+2 SURN Whitaker
+1 SEX M
+1 BIRT
+2 DATE 1899
+2 PLAC Halifax, West Yorkshire, England
+1 DEAT
+2 DATE 1970
+2 PLAC Halifax, West Yorkshire, England
+1 FAMC @F11@
+1 FAMS @F6@
+0 @I14@ INDI
+1 NAME Annie Elizabeth /Mitchell/
+2 GIVN Annie Elizabeth
+2 SURN Mitchell
+1 SEX F
+1 BIRT
+2 DATE 1902
+2 PLAC Halifax, West Yorkshire, England
+1 DEAT
+2 DATE 1988
+1 FAMS @F6@
+0 @I15@ INDI
+1 NAME Albert Edward /Holland/
+2 GIVN Albert Edward
+2 SURN Holland
+1 SEX M
+1 BIRT
+2 DATE 1903
+2 PLAC Huddersfield, West Yorkshire, England
+1 DEAT
+2 DATE 1977
+2 PLAC Huddersfield, West Yorkshire, England
+1 FAMC @F12@
+1 FAMS @F7@
+0 @I16@ INDI
+1 NAME Florence Ethel /Greenwood/
+2 GIVN Florence Ethel
+2 SURN Greenwood
+1 SEX F
+1 BIRT
+2 DATE 1905
+2 PLAC Huddersfield, West Yorkshire, England
+1 DEAT
+2 DATE 1991
+1 FAMS @F7@
+0 @I17@ INDI
+1 NAME Joseph /Hargreaves/
+2 GIVN Joseph
+2 SURN Hargreaves
+1 SEX M
+1 BIRT
+2 DATE 1878
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 1941
+1 FAMS @F8@
+0 @I18@ INDI
+1 NAME Hannah /Sagar/
+2 GIVN Hannah
+2 SURN Sagar
+1 SEX F
+1 BIRT
+2 DATE 1880
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 1962
+1 FAMS @F8@
+0 @I19@ INDI
+1 NAME William /Sutcliffe/
+2 GIVN William
+2 SURN Sutcliffe
+1 SEX M
+1 BIRT
+2 DATE 1876
+2 PLAC Bradford, West Yorkshire, England
+1 DEAT
+2 DATE 1950
+1 FAMS @F9@
+0 @I20@ INDI
+1 NAME Mary Ellen /Crabtree/
+2 GIVN Mary Ellen
+2 SURN Crabtree
+1 SEX F
+1 BIRT
+2 DATE 1879
+1 FAMS @F9@
+0 @I21@ INDI
+1 NAME Ernest /Pickles/
+2 GIVN Ernest
+2 SURN Pickles
+1 SEX M
+1 BIRT
+2 DATE 1880
+2 PLAC Keighley, West Yorkshire, England
+1 FAMS @F10@
+0 @I22@ INDI
+1 NAME George /Whitaker/
+2 GIVN George
+2 SURN Whitaker
+1 SEX M
+1 BIRT
+2 DATE 1870
+2 PLAC Halifax, West Yorkshire, England
+1 DEAT
+2 DATE 1935
+1 FAMS @F11@
+0 @I23@ INDI
+1 NAME Sarah Ann /Lister/
+2 GIVN Sarah Ann
+2 SURN Lister
+1 SEX F
+1 BIRT
+2 DATE 1872
+1 FAMS @F11@
+0 @I24@ INDI
+1 NAME Thomas /Holland/
+2 GIVN Thomas
+2 SURN Holland
+1 SEX M
+1 BIRT
+2 DATE 1875
+2 PLAC Huddersfield, West Yorkshire, England
+1 FAMS @F12@
+0 @I25@ INDI
+1 NAME Eliza /Ramsden/
+2 GIVN Eliza
+2 SURN Ramsden
+1 SEX F
+1 BIRT
+2 DATE 1877
+1 FAMS @F12@
+0 @I26@ INDI
+1 NAME Karen Patricia /Whitaker/
+2 GIVN Karen Patricia
+2 SURN Whitaker
+1 SEX F
+1 BIRT
+2 DATE 1 Jun 1966
+2 PLAC Halifax, West Yorkshire, England
+1 FAMC @F3@
+0 @F1@ FAM
+1 HUSB @I3@
+1 WIFE @I4@
+1 CHIL @I1@
+1 CHIL @I2@
+1 MARR
+2 DATE 14 Jun 1986
+2 PLAC Halifax, West Yorkshire, England
+0 @F2@ FAM
+1 HUSB @I5@
+1 WIFE @I6@
+1 CHIL @I3@
+0 @F3@ FAM
+1 HUSB @I7@
+1 WIFE @I8@
+1 CHIL @I4@
+1 CHIL @I26@
+0 @F4@ FAM
+1 HUSB @I9@
+1 WIFE @I10@
+1 CHIL @I5@
+0 @F5@ FAM
+1 HUSB @I11@
+1 WIFE @I12@
+1 CHIL @I6@
+0 @F6@ FAM
+1 HUSB @I13@
+1 WIFE @I14@
+1 CHIL @I7@
+0 @F7@ FAM
+1 HUSB @I15@
+1 WIFE @I16@
+1 CHIL @I8@
+0 @F8@ FAM
+1 HUSB @I17@
+1 WIFE @I18@
+1 CHIL @I9@
+0 @F9@ FAM
+1 HUSB @I19@
+1 WIFE @I20@
+1 CHIL @I10@
+0 @F10@ FAM
+1 HUSB @I21@
+1 CHIL @I11@
+0 @F11@ FAM
+1 HUSB @I22@
+1 WIFE @I23@
+1 CHIL @I13@
+0 @F12@ FAM
+1 HUSB @I24@
+1 WIFE @I25@
+1 CHIL @I15@
+0 @S1@ SOUR
+1 TITL 1939 England and Wales Register
+1 AUTH The National Archives
+0 TRLR

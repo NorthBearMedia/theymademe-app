@@ -1,0 +1,196 @@
+0 HEAD
+1 SOUR FamilySearch
+2 NAME FamilySearch Family Tree
+2 VERS 2.0
+1 DEST GEDCOM
+1 DATE 08 OCT 2026
+1 CHAR UTF-8
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 SUBM @SUBM1@
+0 @SUBM1@ SUBM
+1 NAME Sarah Dyson
+0 @KWQ4-ZDN@ INDI
+1 NAME Sarah Ann /Dyson/
+1 SEX F
+1 BIRT
+2 DATE 14 FEB 1975
+2 PLAC Sheffield, Yorkshire, England, United Kingdom
+1 FAMC @F100@
+1 _FSFTID KWQ4-ZDN
+0 @KWQ4-ZDP@ INDI
+1 NAME Peter Michael /Dyson/
+1 SEX M
+1 BIRT
+2 DATE 3 MAY 1946
+2 PLAC Sheffield, Yorkshire, England, United Kingdom
+1 FAMC @F900@
+2 PEDI adopted
+1 FAMC @F101@
+2 PEDI birth
+1 FAMS @F100@
+1 _FSFTID KWQ4-ZDP
+0 @KWQ4-ZDQ@ INDI
+1 NAME Margaret Anne /Pickersgill/
+1 SEX F
+1 BIRT
+2 DATE 9 SEP 1948
+2 PLAC Rotherham, Yorkshire, England, United Kingdom
+1 FAMC @F102@
+1 FAMS @F100@
+0 @KWQ4-ZDR@ INDI
+1 NAME Kenneth /Dyson/
+1 SEX M
+1 BIRT
+2 DATE 22 JUN 1918
+2 PLAC Sheffield, Yorkshire, England, United Kingdom
+1 DEAT
+2 DATE 5 NOV 1980
+2 PLAC Sheffield, Yorkshire, England, United Kingdom
+1 FAMC @F103@
+1 FAMS @F101@
+0 @KWQ4-ZDS@ INDI
+1 NAME Nora Eliza /Booth/
+1 SEX F
+1 BIRT
+2 DATE 1920
+2 PLAC Chesterfield, Derbyshire, England, United Kingdom
+1 DEAT
+2 DATE 1995
+1 FAMC @F104@
+1 FAMS @F101@
+0 @KWQ4-ZDT@ INDI
+1 NAME William Henry /Pickersgill/
+1 SEX M
+1 BIRT
+2 DATE ABT 1921
+2 PLAC Rotherham, Yorkshire, England, United Kingdom
+1 DEAT
+2 DATE 1998
+2 PLAC Rotherham, Yorkshire, England, United Kingdom
+1 FAMC @F105@
+1 FAMS @F102@
+0 @KWQ4-ZDV@ INDI
+1 NAME Joan Mary /Hallam/
+1 SEX F
+1 BIRT
+2 DATE 30 APR 1924
+2 PLAC Barnsley, Yorkshire, England, United Kingdom
+1 DEAT
+2 DATE 2010
+1 FAMC @F106@
+1 FAMS @F102@
+0 @KWQ4-ZDW@ INDI
+1 NAME Harry /Dyson/
+1 SEX M
+1 CHR
+2 DATE 17 MAR 1889
+2 PLAC St Mary, Sheffield, Yorkshire, England, United Kingdom
+1 BURI
+2 DATE 1951
+2 PLAC Sheffield General Cemetery, Yorkshire, England, United Kingdom
+1 FAMS @F103@
+0 @KWQ4-ZDX@ INDI
+1 NAME Ethel May /Fox/
+1 SEX F
+1 BIRT
+2 DATE BET 1890 AND 1893
+1 DEAT
+2 DATE AFT 1961
+1 FAMS @F103@
+0 @KWQ4-ZDY@ INDI
+1 NAME Samuel /Booth/
+1 SEX M
+1 BAPM
+2 DATE 1 JAN 1890/91
+2 PLAC Chesterfield, Derbyshire, England, United Kingdom
+1 DEAT
+2 DATE BEF 1939
+1 FAMS @F104@
+0 @KWQ4-ZDZ@ INDI
+1 NAME Lily /Marsden/
+1 SEX F
+1 BIRT
+2 DATE EST 1894
+1 FAMS @F104@
+0 @KWQ4-ZF1@ INDI
+1 NAME Albert /Pickersgill/
+1 SEX M
+1 BIRT
+2 DATE FROM 1890 TO 1895
+2 PLAC Rotherham, Yorkshire, England, United Kingdom
+1 FAMS @F105@
+0 @KWQ4-ZF2@ INDI
+1 NAME Gertrude /Hill/
+1 SEX F
+1 BIRT
+2 DATE (1896)
+1 FAMS @F105@
+0 @KWQ4-ZF3@ INDI
+1 NAME Frank /Hallam/
+1 SEX M
+1 BIRT
+2 DATE 1895
+2 PLAC Barnsley, Yorkshire, England, United Kingdom
+1 FAMS @F106@
+0 @KWQ4-ZF4@ INDI
+1 NAME Annie /Cooper/
+1 SEX F
+1 BIRT
+2 DATE 1898
+2 PLAC Barnsley, Yorkshire, England, United Kingdom
+1 FAMS @F106@
+0 @KWQ4-ZF5@ INDI
+1 NAME Colin Peter /Hallam/
+1 SEX M
+1 BIRT
+2 DATE 11 JAN 1950
+2 PLAC Barnsley, Yorkshire, England, United Kingdom
+1 FAMC @F106@
+0 @KWQ4-ZF6@ INDI
+1 NAME Brian /Smith/
+1 SEX M
+1 BIRT
+2 DATE 1944
+1 FAMS @F900@
+0 @KWQ4-ZF7@ INDI
+1 NAME Pauline /Smith/
+1 SEX F
+1 BIRT
+2 DATE 1946
+1 FAMS @F900@
+0 @F100@ FAM
+1 HUSB @KWQ4-ZDP@
+1 WIFE @KWQ4-ZDQ@
+1 CHIL @KWQ4-ZDN@
+0 @F101@ FAM
+1 HUSB @KWQ4-ZDR@
+1 WIFE @KWQ4-ZDS@
+1 CHIL @KWQ4-ZDP@
+0 @F102@ FAM
+1 HUSB @KWQ4-ZDT@
+1 WIFE @KWQ4-ZDV@
+1 CHIL @KWQ4-ZDQ@
+0 @F103@ FAM
+1 HUSB @KWQ4-ZDW@
+1 WIFE @KWQ4-ZDX@
+1 CHIL @KWQ4-ZDR@
+0 @F104@ FAM
+1 HUSB @KWQ4-ZDY@
+1 WIFE @KWQ4-ZDZ@
+1 CHIL @KWQ4-ZDS@
+0 @F105@ FAM
+1 HUSB @KWQ4-ZF1@
+1 WIFE @KWQ4-ZF2@
+1 CHIL @KWQ4-ZDT@
+0 @F106@ FAM
+1 HUSB @KWQ4-ZF3@
+1 WIFE @KWQ4-ZF4@
+1 CHIL @KWQ4-ZDV@
+1 CHIL @KWQ4-ZF5@
+0 @F900@ FAM
+1 HUSB @KWQ4-ZF6@
+1 WIFE @KWQ4-ZF7@
+1 CHIL @KWQ4-ZDP@
+0 TRLR
