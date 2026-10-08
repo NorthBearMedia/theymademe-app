@@ -117,7 +117,8 @@ class FreeBMDClient {
           method,
           ...options,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            // Identify ourselves honestly (never impersonate a browser).
+            'User-Agent': `TheyMadeMe/1.0 (+https://theymademe.co.uk; ${config.WIKIDATA_CONTACT || 'info@northbearmedia.co.uk'})`,
             'Accept': 'text/html,application/xhtml+xml',
             ...(options.headers || {}),
           },

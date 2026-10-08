@@ -38,6 +38,28 @@ Run the guard: `node app/test/eval/rules-governance.test.js`
 
 ---
 
+## Changelog — v2.3.0 (more records, governed)
+
+Adds **external corroboration** — a new, small, capped evidence section
+(`RULES.corroboration`). It can only nudge confidence up or raise a review flag;
+it can never lift an ancestor past a gate.
+
+- **Uploaded tree (GEDCOM) cross-check.** The customer's own tree is stored as
+  *unverified hints* below the trusted depth. Agreement on name + birth year
+  (±2 yrs) adds +6; a disagreement is **flagged for human review, never
+  auto-resolved, and costs 0 points** (`leadConflictPenalty`) — the uploaded tree
+  may be the wrong one.
+- **Wikidata (CC0).** A *unique, strict* identity match only: +8 if a parent's name
+  agrees with our tree, +4 if only the birthplace county agrees, else treated as
+  a namesake (0). Capped at 80 external queries per job.
+- **FamilySearch record hints.** +3 per distinct primary-record hint (max +6),
+  OFF until `FS_RECORD_HINTS_ENABLED=true` and a key that includes Records.
+  FamilySearch's terms restrict *displaying* records data, so hints are used
+  internally and never shown to customers.
+- **Whole section capped at +10.**
+- **FreeBMD is OFF by default** (`FREEBMD_ENABLED`) until Free UK Genealogy grants
+  written permission — their terms forbid programs that submit searches.
+
 ## Changelog — v2.2.0 (validated against the customer's REAL family tree)
 
 The engine was tested against the real Ahlfors-Hunt fan-chart PDF (both

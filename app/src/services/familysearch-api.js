@@ -92,32 +92,10 @@ function extractYear(dateStr) {
   return m ? m[1] : '';
 }
 
-// Search for a person in the FamilySearch tree
-// Returns full GEDCOM X person data for scoring, not just display fields
-async function searchPerson({
-  givenName, surname, birthDate, birthPlace, deathDate, deathPlace,
-  fatherGivenName, fatherSurname, motherGivenName, motherSurname,
-  count
-}) {
-  const params = new URLSearchParams();
-  if (givenName) params.set('q.givenName', givenName);
-  if (surname) params.set('q.surname', surname);
-  const birthYear = extractYear(birthDate);
-  if (birthYear) params.set('q.birthLikeDate', birthYear);
-  if (birthPlace) params.set('q.birthLikePlace', birthPlace);
-  const deathYear = extractYear(deathDate);
-  if (deathYear) params.set('q.deathLikeDate', deathYear);
-  if (deathPlace) params.set('q.deathLikePlace', deathPlace);
-  if (fatherGivenName) params.set('q.fatherGivenName', fatherGivenName);
-  if (fatherSurname) params.set('q.fatherSurname', fatherSurname);
-  if (motherGivenName) params.set('q.motherGivenName', motherGivenName);
-  if (motherSurname) params.set('q.motherSurname', motherSurname);
-  if (count) params.set('count', count);
-
-  const data = await rateLimitedApiRequest(`/platform/tree/search?${params.toString()}`);
-
-  if (!data.entries) return [];
-
+// Shared parser for FamilySearch Atom search feeds (tree search, record search,
+// person matches). Entries carry GEDCOM X persons + relationships.
+function parseAtomEntries(data) {
+  if (!data || !data.entries) return [];
   return data.entries.map(entry => {
     const person = entry.content?.gedcomx?.persons?.[0];
     if (!person) return null;
@@ -178,6 +156,11 @@ async function searchPerson({
 
     return {
       id: person.id,
+      // Record/match entries carry a title (e.g. the collection) and source
+      // descriptions — used to classify record hints without displaying them.
+      entryTitle: (typeof entry.title === 'string' ? entry.title : '') || '',
+      sourceTitles: (entry.content?.gedcomx?.sourceDescriptions || [])
+        .map(sd => sd.titles?.[0]?.value).filter(Boolean),
       name: display.name || 'Unknown',
       gender: display.gender || 'Unknown',
       birthDate: display.birthDate || '',
@@ -215,6 +198,33 @@ async function searchPerson({
       raw: person,
     };
   }).filter(Boolean);
+}
+
+// Search for a person in the FamilySearch tree
+// Returns full GEDCOM X person data for scoring, not just display fields
+async function searchPerson({
+  givenName, surname, birthDate, birthPlace, deathDate, deathPlace,
+  fatherGivenName, fatherSurname, motherGivenName, motherSurname,
+  count
+}) {
+  const params = new URLSearchParams();
+  if (givenName) params.set('q.givenName', givenName);
+  if (surname) params.set('q.surname', surname);
+  const birthYear = extractYear(birthDate);
+  if (birthYear) params.set('q.birthLikeDate', birthYear);
+  if (birthPlace) params.set('q.birthLikePlace', birthPlace);
+  const deathYear = extractYear(deathDate);
+  if (deathYear) params.set('q.deathLikeDate', deathYear);
+  if (deathPlace) params.set('q.deathLikePlace', deathPlace);
+  if (fatherGivenName) params.set('q.fatherGivenName', fatherGivenName);
+  if (fatherSurname) params.set('q.fatherSurname', fatherSurname);
+  if (motherGivenName) params.set('q.motherGivenName', motherGivenName);
+  if (motherSurname) params.set('q.motherSurname', motherSurname);
+  if (count) params.set('count', count);
+
+  const data = await rateLimitedApiRequest(`/platform/tree/search?${params.toString()}`);
+
+  return parseAtomEntries(data);
 }
 
 // Get parents for a person — replaces getAncestry() for tree traversal
@@ -452,8 +462,112 @@ async function extractFactsByType(personId) {
   return result;
 }
 
+
+// ─── Pedigree: several generations in ONE call ───────────────────────────
+// Recovered from the engine's earlier working implementation (git 7e32d9c^).
+// FamilySearch's Read Ancestry endpoint returns the whole pedigree with
+// display.ascendancyNumber on every person (1 = the root, father = 2n,
+// mother = 2n+1) — one request instead of one getParents() per person.
+async function getAncestry(personId, generations = 4) {
+  const data = await rateLimitedApiRequest(`/platform/tree/ancestry?person=${encodeURIComponent(personId)}&generations=${generations}`);
+
+  if (!data.persons) return [];
+
+  return data.persons.map(person => {
+    const display = person.display || {};
+    const ascNum = person.display?.ascendancyNumber;
+
+    // Extract dates/places — try display fields first, then facts, then lifespan
+    let birthDate = display.birthDate || '';
+    let birthPlace = display.birthPlace || '';
+    let deathDate = display.deathDate || '';
+    let deathPlace = display.deathPlace || '';
+
+    if (person.facts) {
+      for (const fact of person.facts) {
+        const type = (fact.type || '').toLowerCase();
+        const dateStr = fact.date?.original || '';
+        const placeStr = fact.place?.original || '';
+        if (type.includes('birth') || type.includes('christening')) {
+          if (!birthDate && dateStr) birthDate = dateStr;
+          if (!birthPlace && placeStr) birthPlace = placeStr;
+        }
+        if (type.includes('death') || type.includes('burial')) {
+          if (!deathDate && dateStr) deathDate = dateStr;
+          if (!deathPlace && placeStr) deathPlace = placeStr;
+        }
+      }
+    }
+
+    // Parse lifespan (e.g. "1875-1958", "1875-", "-1958") for missing dates
+    if (display.lifespan && (!birthDate || !deathDate)) {
+      const lifespanMatch = display.lifespan.match(/^(\d{4})?\s*[-–]\s*(\d{4})?$/);
+      if (lifespanMatch) {
+        if (!birthDate && lifespanMatch[1]) birthDate = lifespanMatch[1];
+        if (!deathDate && lifespanMatch[2]) deathDate = lifespanMatch[2];
+      }
+    }
+
+    const asc = ascNum ? parseInt(ascNum, 10) : null;
+    return {
+      id: person.id,
+      fs_person_id: person.id,
+      name: display.name || 'Unknown',
+      gender: display.gender || 'Unknown',
+      birthDate, birthPlace, deathDate, deathPlace,
+      ascendancy_number: asc,
+      generation: asc ? Math.floor(Math.log2(asc)) : 0,
+      facts: person.facts || [],
+      raw: person,
+    };
+  });
+}
+
+// ─── Historical RECORDS search (census, civil index, parish …) ────────────
+// The record archive is a separate pile from the tree and is where most of
+// FamilySearch's billions of UK records live. Same query vocabulary as tree
+// search (q.givenName, q.surname, q.birthLikeDate …) plus record metadata
+// filters (q.recordCountry, q.collectionId …).
+// UNVERIFIED against the live API: sources disagree on the path
+// (/platform/search/records vs /platform/records/personas), so it is
+// configurable (FS_RECORDS_SEARCH_PATH). Needs a key that includes Records.
+async function searchRecords({
+  givenName, surname, birthDate, birthPlace, deathDate, deathPlace,
+  recordCountry, collectionId, count,
+}) {
+  const params = new URLSearchParams();
+  if (givenName) params.set('q.givenName', givenName);
+  if (surname) params.set('q.surname', surname);
+  const birthYear = extractYear(birthDate);
+  if (birthYear) params.set('q.birthLikeDate', birthYear);
+  if (birthPlace) params.set('q.birthLikePlace', birthPlace);
+  const deathYear = extractYear(deathDate);
+  if (deathYear) params.set('q.deathLikeDate', deathYear);
+  if (deathPlace) params.set('q.deathLikePlace', deathPlace);
+  if (recordCountry) params.set('q.recordCountry', recordCountry);
+  if (collectionId) params.set('q.collectionId', collectionId);
+  if (count) params.set('count', count);
+
+  const data = await rateLimitedApiRequest(`${config.FS_RECORDS_SEARCH_PATH}?${params.toString()}`);
+  return parseAtomEntries(data);
+}
+
+// ─── Person matches / hints (tree person → records & other tree persons) ──
+// "Read Person Matches by ID": FamilySearch's own matcher. For a tree person
+// it returns record hints from the historical records archive. Usage and
+// display of that data is restricted by FamilySearch's terms (records data
+// may only be DISPLAYED by FamilySearch products) — keep it internal.
+async function getPersonMatches(personId) {
+  const data = await rateLimitedApiRequest(`/platform/tree/persons/${encodeURIComponent(personId)}/matches`);
+  return parseAtomEntries(data);
+}
+
 module.exports = {
   searchPerson,
+  getAncestry,
+  searchRecords,
+  getPersonMatches,
+  parseAtomEntries,
   getParents,
   getSpouses,
   getPersonDetails,

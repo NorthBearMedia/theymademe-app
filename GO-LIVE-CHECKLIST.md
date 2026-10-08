@@ -72,3 +72,19 @@ one was disabled), and the landing page now points at it. What remains is
   flagged in the admin so you can honour the refund promise proactively.
 - Stalled-job detection, master rulebook governance, accuracy harness
   (validated 100% on the real Ahlfors-Hunt/Vallance tree).
+
+## 5. Data sources (see DATA-SOURCES.md)
+
+- [ ] **FamilySearch**: register a developer app (instant sandbox key), then submit the
+      drafted Third-Party Service Provider application (Gmail draft). Production
+      use needs their Compatible review. Until then use the beta key already configured.
+- [ ] **FreeBMD is OFF** (`FREEBMD_ENABLED` unset). Send the drafted permission request;
+      turn it on only after Free UK Genealogy replies in writing. Expect lower
+      coverage until then (the last prototype run credited it with ~15% of ancestors).
+- [ ] Once you have live FamilySearch access: run one tree with `FS_USE_PEDIGREE=true`
+      and compare with a normal run; if identical, keep it on (far fewer API calls).
+- [ ] `FS_RECORD_HINTS_ENABLED=true` only after FamilySearch confirms your key includes
+      Records AND that internal (non-displayed) use of record hints is acceptable.
+- [ ] Wikidata is on by default (open CC0 data). `WIKIDATA_CONTACT` goes in the
+      User-Agent as Wikimedia requires — set it to a monitored address.
+- [ ] Admin → Research → **Import GEDCOM** to start a job from a customer's uploaded tree.

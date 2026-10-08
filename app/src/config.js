@@ -17,6 +17,11 @@ module.exports = {
   FS_AUTH_URL: process.env.FS_AUTH_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/authorization',
   FS_TOKEN_URL: process.env.FS_TOKEN_URL || 'https://identbeta.familysearch.org/cis-web/oauth2/v3/token',
   FS_API_BASE: process.env.FS_API_BASE || 'https://apibeta.familysearch.org',
+  // New FamilySearch capabilities — OFF until validated against the live API
+  // with a key that includes them (see GO-LIVE-CHECKLIST / MASTER-RULES).
+  FS_USE_PEDIGREE: process.env.FS_USE_PEDIGREE === 'true',           // one Read-Ancestry call instead of per-person getParents
+  FS_RECORD_HINTS_ENABLED: process.env.FS_RECORD_HINTS_ENABLED === 'true', // record hints as internal corroboration
+  FS_RECORDS_SEARCH_PATH: process.env.FS_RECORDS_SEARCH_PATH || '/platform/search/records', // UNVERIFIED path
 
   // Geni.com OAuth
   GENI_CLIENT_ID: process.env.GENI_CLIENT_ID || '',
@@ -29,8 +34,18 @@ module.exports = {
   // JotForm Intake Webhook
   INTAKE_SECRET: process.env.INTAKE_SECRET || '',
 
-  // FreeBMD
+  // FreeBMD — DISABLED by default. FreeBMD's published terms limit use to
+  // personal research and forbid programs that submit searches without prior
+  // written permission. Set FREEBMD_ENABLED=true ONLY after Free UK Genealogy
+  // has granted permission.
   FREEBMD_BASE_URL: process.env.FREEBMD_BASE_URL || 'https://www.freebmd.org.uk',
+  FREEBMD_ENABLED: process.env.FREEBMD_ENABLED === 'true',
+
+  // Wikidata (CC0) — notable-person corroboration. On by default; set
+  // WIKIDATA_ENABLED=false to disable. WIKIDATA_CONTACT goes in the User-Agent
+  // (Wikimedia policy requires an identifying contact).
+  WIKIDATA_ENABLED: process.env.WIKIDATA_ENABLED || 'true',
+  WIKIDATA_CONTACT: process.env.WIKIDATA_CONTACT || 'info@northbearmedia.co.uk',
 
   // AI Review
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',

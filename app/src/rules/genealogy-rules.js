@@ -20,7 +20,7 @@
 const crypto = require('crypto');
 
 const RULES = {
-  version: '2.2.0',
+  version: '2.3.0',
 
   // ── Parent→child birth-year gap (SEX-SPECIFIC) ─────────────────────────
   // A parent is born this many years before their child. Bounds differ by sex
@@ -158,6 +158,30 @@ const RULES = {
     fatherDirectSearchRequiresNameEvidence: true,
   },
 
+  // ── External corroboration (extra evidence, small and CAPPED) ──────────
+  // Independent sources can nudge confidence UP when they agree and raise a
+  // human-review flag when they conflict. They can never override the gates
+  // above (an unsourced civil-era ancestor still caps at the gate), and a
+  // disagreement with the customer's own tree is never auto-resolved.
+  corroboration: {
+    enabled: true,
+    maxPoints: 10,                    // ceiling on the whole corroboration section
+    // Customer's own uploaded tree (GEDCOM) — unverified hints, cross-checked:
+    leadAgreePoints: 6,               // name AND birth year agree with the uploaded tree
+    leadYearTolerance: 2,             // years of slack on the birth-year comparison
+    leadConflictPenalty: 0,           // conflicts are FLAGGED for review, not penalised
+    // Wikidata (CC0, notable people only) — a unique, strict identity match:
+    wikidataParentAgreePoints: 8,     // unique match AND a parent's name agrees with our tree
+    wikidataPlaceAgreePoints: 4,      // unique match AND birthplace in the same/adjacent county
+    wikidataMaxQueriesPerJob: 80,     // politeness cap on external calls per job
+    // FamilySearch record hints (needs FS_RECORD_HINTS_ENABLED + a key that includes Records):
+    fsRecordHintPoints: 3,            // per distinct primary-record hint (census / civil / parish)
+    fsRecordHintMaxPoints: 6,
+    // FamilySearch terms: historical-records data may only be DISPLAYED by
+    // FamilySearch products — hints are used internally and never shown to customers.
+    fsRecordHintsInternalOnly: true,
+  },
+
   // ── FreeBMD confirmation score thresholds ──────────────────────────────
   freebmd: {
     birthConfirmMinScore: 50,
@@ -222,7 +246,8 @@ suggest, but you may NOT invent looser rules or override these thresholds.
    - Probable (${c.levelCutoffs.probable}–${c.levelCutoffs.verified - 1}%): solid but with a gap.
    - Possible (${c.levelCutoffs.possible}–${c.levelCutoffs.probable - 1}%): plausible, unverified — needs manual review.
    - A wrong person at high confidence is far worse than being cautious.
-7. CROSS-REFERENCE: a parent cannot die before their child is born; FreeBMD district should match the birthplace; a marriage spouse surname should match the other parent's maiden name.`;
+7. CROSS-REFERENCE: a parent cannot die before their child is born; FreeBMD district should match the birthplace; a marriage spouse surname should match the other parent's maiden name.
+8. EXTERNAL CORROBORATION (max +${RULES.corroboration.maxPoints} points): the customer's uploaded family tree and Wikidata may corroborate an ancestor. A DISAGREEMENT with the customer's own tree is flagged for human review — never resolve it yourself, and never treat an uploaded tree as proof.`;
 }
 
 const RULES_TEXT = renderRulesText();

@@ -21,7 +21,17 @@ function buildSourceRegistry() {
     // Geni not yet installed or configured — skip silently
   }
 
-  // FreeBMD — always available, no auth needed
+  // Wikidata (CC0) — open corroboration for notable people; no auth needed.
+  // Registered even when absent on disk: the engine only uses it if isAvailable().
+  try {
+    const { WikidataSource } = require('./wikidata-source');
+    sources.push(new WikidataSource());
+  } catch (err) {
+    // Wikidata adapter not installed — skip silently
+  }
+
+  // FreeBMD — registered, but isAvailable() stays false unless FREEBMD_ENABLED=true
+  // (FreeBMD's terms require written permission for automated use).
   try {
     const { FreeBMDSource } = require('./freebmd-source');
     sources.push(new FreeBMDSource());

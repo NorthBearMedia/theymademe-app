@@ -60,6 +60,10 @@ function parentAsc(asc) {
  * FreeBMD covers England & Wales BMD records 1837-1983.
  */
 async function runFreeBMDCrossReference(jobId) {
+  if (!require('../config').FREEBMD_ENABLED) {
+    console.log('[AI-Review] FreeBMD cross-reference skipped (FREEBMD_ENABLED is not set — permission from Free UK Genealogy required)');
+    return;
+  }
   const ancestors = db.getAncestors(jobId);
   const total = ancestors.length;
   let processed = 0;

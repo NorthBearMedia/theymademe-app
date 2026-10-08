@@ -26,7 +26,10 @@ class FreeBMDSource extends ResearchSource {
   }
 
   isAvailable() {
-    return true; // No auth needed — always available
+    // OFF unless FREEBMD_ENABLED=true. FreeBMD's terms forbid programs that
+    // submit searches without written permission from Free UK Genealogy —
+    // enable only once permission has been granted.
+    return !!require('../config').FREEBMD_ENABLED;
   }
 
   // --- Raw search methods (return full result sets for discovery) ---

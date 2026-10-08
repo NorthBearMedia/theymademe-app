@@ -38,7 +38,10 @@ app.use(helmet({
 }));
 
 // Logging
-app.use(morgan('combined'));
+// Never write secrets to the access log: 'combined' logs the full URL, which
+// includes ?token=<INTAKE_SECRET> on the JotForm webhook.
+morgan.token('safe-url', (req) => String(req.originalUrl || req.url).replace(/([?&](?:token|secret|key)=)[^&]*/gi, '$1[REDACTED]'));
+app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"'));
 
 // Body parsing
 app.use(express.urlencoded({ extended: true }));

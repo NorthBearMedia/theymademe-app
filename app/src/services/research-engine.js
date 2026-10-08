@@ -1,6 +1,7 @@
 const fsApi = require('./familysearch-api');
 const { districtMatches } = require('./freebmd-client'); // used by legacy methods
 const { RULES, RULES_VERSION, RULES_HASH } = require('../rules/genealogy-rules');
+const config = require('../config');
 const { resolveCounty, countyProximity, placeProximity } = require('./county-data');
 
 // ─── Utility Functions ───────────────────────────────────────────────
@@ -916,6 +917,9 @@ class ResearchEngine {
     this.sources = sources || [];
     this.fsSource = this.sources.find(s => s.sourceName === 'FamilySearch' && s.isAvailable());
     this.freebmdSource = this.sources.find(s => s.sourceName === 'FreeBMD' && s.isAvailable());
+    // Optional corroborators (open data). Failure or absence never affects a job.
+    this.wikidataSource = this.sources.find(s => s.sourceName === 'Wikidata' && s.isAvailable());
+    this.wikidataQueries = 0;
     this.freebmdFailCount = 0;
 
     console.log(`[Engine] Sources: FamilySearch=${!!this.fsSource}, FreeBMD=${!!this.freebmdSource}`);
@@ -1902,6 +1906,104 @@ class ResearchEngine {
   // 2. Search for unknown ancestors independently using records
   // 3. Score all ancestors bottom-up using record-based evidence
   //
+
+
+  // ─── Section 5: External corroboration (rulebook: RULES.corroboration) ───
+  // Independent evidence that can nudge confidence UP when it agrees, and raise a
+  // human-review flag when the customer's own uploaded tree disagrees. Every
+  // external call is best-effort: any failure yields zero points, never an error.
+  async corroborate(asc, rec) {
+    const R = RULES.corroboration;
+    const out = { points: 0, notes: [], evidence: [], conflicts: [] };
+    if (!R.enabled || asc <= 1 || rec.confidence_level === 'Customer Data') return out;
+
+    const np = parseNameParts(rec.name || '');
+    const birthYear = normalizeDate(rec.birth_date)?.year || null;
+    const deathYear = normalizeDate(rec.death_date)?.year || null;
+
+    // (a) The customer's own uploaded tree (GEDCOM) — an UNVERIFIED hint for this slot
+    const lead = this.inputData?.gedcom_leads?.[String(asc)];
+    if (lead && (lead.name || lead.surname)) {
+      const leadSur = String(lead.surname || '').toLowerCase();
+      const recSur = String(np.surname || '').toLowerCase();
+      const surnameOk = !!leadSur && !!recSur && (leadSur === recSur ||
+        this.getSurnameVariants(np.surname).some(v => v.toLowerCase() === leadSur));
+      const givenOk = !!lead.given && !!np.givenName &&
+        this.namesSimilar(String(lead.given).split(/\s+/)[0], np.givenName.split(/\s+/)[0]);
+      const yearKnown = !!lead.birthYear && !!birthYear;
+      const yearOk = yearKnown && Math.abs(lead.birthYear - birthYear) <= R.leadYearTolerance;
+      if (surnameOk && givenOk && yearOk) {
+        out.points += R.leadAgreePoints;
+        out.notes.push(`Uploaded tree agrees: ${lead.name}, b.${lead.birthYear} (+${R.leadAgreePoints})`);
+        out.evidence.push({ source_type: 'Customer tree', title: 'Matches the family tree uploaded by the customer',
+          url: '', citation: `${lead.name}${lead.birthYear ? ' b.' + lead.birthYear : ''}`, weight: R.leadAgreePoints });
+      } else if (!surnameOk || !givenOk || (yearKnown && !yearOk)) {
+        const msg = `Uploaded tree has "${lead.name}"${lead.birthYear ? ' b.' + lead.birthYear : ''} here; research found "${rec.name}"${birthYear ? ' b.' + birthYear : ''}`;
+        out.conflicts.push({ type: 'uploaded_tree_conflict', message: msg });
+        out.points += R.leadConflictPenalty;
+        out.notes.push(`CONFLICT with uploaded tree — review: ${msg}`);
+      } else {
+        out.notes.push(`Uploaded tree names ${lead.name} here (no birth year to compare)`);
+      }
+    }
+
+    // (b) Wikidata — only a UNIQUE, strict identity match counts
+    if (this.wikidataSource && birthYear && np.surname && this.wikidataQueries < R.wikidataMaxQueriesPerJob) {
+      try {
+        this.wikidataQueries++;
+        const w = await this.wikidataSource.corroborate({
+          name: rec.name, birthYear, deathYear, birthPlace: rec.birth_place || '',
+        });
+        if (w && w.matched) {
+          const looseSame = (a, b) => {
+            if (!a || !b) return false;
+            const x = parseNameParts(a), y = parseNameParts(b);
+            return !!x.surname && !!y.surname && x.surname.toLowerCase() === y.surname.toLowerCase() &&
+              this.namesSimilar(String(x.givenName || '').split(/\s+/)[0], String(y.givenName || '').split(/\s+/)[0]);
+          };
+          const fatherRec = this.db.getAncestorByAscNumber(this.jobId, asc * 2);
+          const motherRec = this.db.getAncestorByAscNumber(this.jobId, asc * 2 + 1);
+          const parentAgree = looseSame(w.fatherName, fatherRec?.name) || looseSame(w.motherName, motherRec?.name);
+          const prox = rec.birth_place && w.birthPlace ? placeProximity(rec.birth_place, w.birthPlace).proximity : null;
+          const placeAgree = prox === 'same' || prox === 'adjacent';
+          if (parentAgree || placeAgree) {
+            const pts = parentAgree ? R.wikidataParentAgreePoints : R.wikidataPlaceAgreePoints;
+            out.points += pts;
+            out.notes.push(`Wikidata ${w.qid} (${w.label}) matches — ${parentAgree ? 'parents agree' : 'birthplace agrees'} (+${pts})`);
+            out.evidence.push({ source_type: 'External corroboration', title: `Wikidata ${w.qid}: ${w.label}`,
+              url: w.url || '', citation: w.description || '', weight: pts });
+          } else {
+            out.notes.push(`Wikidata ${w.qid} shares name+birth year but neither parents nor place agree — treated as a namesake`);
+          }
+        }
+      } catch (err) {
+        console.log(`[Engine] asc#${asc}: Wikidata corroboration skipped (${err.message})`);
+      }
+    }
+
+    // (c) FamilySearch record hints — INTERNAL only (FamilySearch terms restrict display)
+    if (config.FS_RECORD_HINTS_ENABLED && this.fsSource?.getRecordHints && rec.fs_person_id) {
+      try {
+        const hints = await this.fsSource.getRecordHints(rec.fs_person_id);
+        const primary = new Set(RULES.sources.primaryCategories);
+        const keys = new Set();
+        for (const h of hints) {
+          const c = classifySourceRecord(h.title || (h.sourceTitles || [])[0] || '');
+          if (primary.has(c.category)) keys.add(c.key);
+        }
+        if (keys.size) {
+          const pts = Math.min(keys.size * R.fsRecordHintPoints, R.fsRecordHintMaxPoints);
+          out.points += pts;
+          out.notes.push(`FamilySearch lists ${keys.size} distinct primary-record hint(s) (+${pts}; internal only)`);
+        }
+      } catch (err) {
+        console.log(`[Engine] asc#${asc}: FamilySearch record hints skipped (${err.message})`);
+      }
+    }
+
+    out.points = Math.min(out.points, R.maxPoints);
+    return out;
+  }
 
   async run() {
     try {
@@ -3676,8 +3778,11 @@ class ResearchEngine {
         // Section 4: Location & date plausibility (pass facts + sources for location resolution)
         const locationResult = this.scoreLocationDate(asc, rec, scoredAncestors, fetchedFacts, fetchedSources);
 
+        // Section 5: external corroboration (uploaded tree, Wikidata, FS record hints)
+        const corroboration = await this.corroborate(asc, rec);
+
         // Sum all points
-        const totalPoints = sourceResult.points + factResult.points + familyResult.points + locationResult.points;
+        const totalPoints = sourceResult.points + factResult.points + familyResult.points + locationResult.points + corroboration.points;
         let confidenceScore = computeFinalScore(totalPoints);
         let confidenceLevel = this.getConfidenceLevel(confidenceScore);
 
@@ -3687,6 +3792,7 @@ class ResearchEngine {
           ...sourceResult.notes,
           ...factResult.notes,
           ...locationResult.notes,
+          ...corroboration.notes,
           `Total: ${totalPoints}pts — ${confidenceLevel} ${confidenceScore}%`,
         ];
         const verificationNotes = allNotes.join('. ');
@@ -3697,6 +3803,7 @@ class ResearchEngine {
           facts: { points: factResult.points, details: factResult.notes },
           family: { points: familyResult.points, details: familyResult.notes },
           location: { points: locationResult.points, details: locationResult.notes },
+          corroboration: { points: corroboration.points, details: corroboration.notes },
           total_points: totalPoints,
           final_score: confidenceScore,
         };
@@ -3764,13 +3871,23 @@ class ResearchEngine {
           missingInfo.push({ type: 'confidence', message: 'Low confidence \u2014 additional details about parents or locations would help.' });
         }
 
+        // Conflicts with the customer's own tree are surfaced for human review
+        for (const c of corroboration.conflicts) {
+          missingInfo.push({ type: 'conflict', message: c.message });
+        }
+        const mergedConflicts = [
+          ...(Array.isArray(rec.conflicts) ? rec.conflicts.filter(c => c && c.type !== 'uploaded_tree_conflict') : []),
+          ...corroboration.conflicts,
+        ];
+
         // Update ancestor in DB
         const existingRaw = rec.raw_data || {};
         this.db.updateAncestorByAscNumber(this.jobId, asc, {
           confidence_score: confidenceScore,
           confidence_level: confidenceLevel,
           confidence: confidenceLevel.toLowerCase(),
-          evidence_chain: sourceResult.evidenceChain,
+          evidence_chain: [...sourceResult.evidenceChain, ...corroboration.evidence],
+          conflicts: mergedConflicts,
           verification_notes: verificationNotes,
           raw_data: { ...existingRaw, scoring_breakdown: scoringBreakdown },
           accepted: autoAccepted,
