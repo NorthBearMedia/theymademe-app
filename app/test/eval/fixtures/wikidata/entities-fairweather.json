@@ -1,0 +1,545 @@
+{
+  "entities": {
+    "Q999000001": {
+      "type": "item",
+      "id": "Q999000001",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Edmund Fairweather"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English civil engineer"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P19",
+              "hash": "e86dbd5ae30c7a3f5cc15facd485f09d29198d03",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 84,
+                  "id": "Q84"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$77EAA80E-1B64-4A1B-9C3D-BE4E7A21D548",
+            "rank": "normal"
+          }
+        ],
+        "P20": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P20",
+              "hash": "b01fd303d0beca634834ff682cd0731434ac7ec8",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 23436,
+                  "id": "Q23436"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$ADE69B1A-C1DF-4A1B-9C3D-715904754969",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$158CBA1D-DA4B-4A1B-9C3D-C956FCA623C2",
+            "rank": "normal"
+          }
+        ],
+        "P22": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P22",
+              "hash": "16cf5a305545c41b3ac2fb2d79b6694ec86f49f4",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000002,
+                  "id": "Q999000002"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$71590475-902B-4A1B-9C3D-C34B44D43482",
+            "rank": "normal"
+          }
+        ],
+        "P25": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P25",
+              "hash": "38c6b71bd9065472b77135b6071c28d9bb610559",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000003,
+                  "id": "Q999000003"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$C34B44D4-FE5D-4A1B-9C3D-4F4E09292D45",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000001$A5BF6FF3-356A-4A1B-9C3D-158CBA1D189E",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "3c61095cec05a5d5da217200a0d3d859bc37f72d",
+              "datavalue": {
+                "value": {
+                  "time": "+1902-05-17T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000001$C956FCA6-77DE-4A1B-9C3D-77EAA80E4D25",
+            "rank": "normal"
+          }
+        ],
+        "P570": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P570",
+              "hash": "69e83e7e9ddad51b28275526a113c58585b769d4",
+              "datavalue": {
+                "value": {
+                  "time": "+1971-11-03T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000001$BE4E7A21-AC34-4A1B-9C3D-ADE69B1AB363",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000002": {
+      "type": "item",
+      "id": "Q999000002",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Henry Fairweather"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English brewer"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P19",
+              "hash": "0d8095549032864838dbfc6c062b4579263cf61d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 2256,
+                  "id": "Q2256"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000002$3B55A510-7B52-4A1B-9C3D-A25DA262A77A",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000002$907988E1-B1D5-4A1B-9C3D-C11B6A348774",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000002$2E5C07A6-0ADE-4A1B-9C3D-907988E1D2D0",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "c1b190ebfbb54606f1157d28f1ac9f3f9b42eff1",
+              "datavalue": {
+                "value": {
+                  "time": "+1871-02-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 10,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000002$C11B6A34-17BA-4A1B-9C3D-3B55A510C34E",
+            "rank": "normal"
+          }
+        ],
+        "P570": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P570",
+              "hash": "01c809566c5bef20cb84197291b669a7fc648cc5",
+              "datavalue": {
+                "value": {
+                  "time": "+1940-00-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 9,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000002$A25DA262-BD30-4A1B-9C3D-5EF409333900",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000003": {
+      "type": "item",
+      "id": "Q999000003",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Agnes Fairweather"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English suffragist"
+        }
+      },
+      "aliases": {
+        "en": [
+          {
+            "language": "en",
+            "value": "Agnes Moore"
+          }
+        ]
+      },
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "9408414f16525f9fcd8dd454a2cf5f3c3f0ce57d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581072,
+                  "id": "Q6581072"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000003$A93FDF9B-F1AB-4A1B-9C3D-4DD17F8806A9",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000003$65D2B1F1-FA35-4A1B-9C3D-A93FDF9B4F86",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "c94c0404fe223298da02e940410d144823701342",
+              "datavalue": {
+                "value": {
+                  "time": "+1875-00-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 9,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000003$4DD17F88-1574-4A1B-9C3D-E8772BFCC3C2",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000060": {
+      "type": "item",
+      "id": "Q999000060",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Edmund Fairweather-Smith"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English cricketer"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000060$96E4F05E-9E6A-4A1B-9C3D-1357460115DB",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000060$E78A27A0-0716-4A1B-9C3D-96E4F05EB668",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "da97acdb6f81d957d40563f0b28c75993c303ef1",
+              "datavalue": {
+                "value": {
+                  "time": "+1902-01-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000060$13574601-B3F0-4A1B-9C3D-1A0B99ED4FCE",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000061": {
+      "type": "item",
+      "id": "Q999000061",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Edmund Fairweather"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "Wikimedia disambiguation page"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "89eabdce2531538b703047fbd6418180497a9fbd",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 4167410,
+                  "id": "Q4167410"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000061$0DA6D321-9103-4A1B-9C3D-1EF25038BE8B",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  },
+  "success": 1
+}

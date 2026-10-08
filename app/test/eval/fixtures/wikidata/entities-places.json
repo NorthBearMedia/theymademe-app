@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "Q84": {
+      "type": "item",
+      "id": "Q84",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "London"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "capital and largest city of the United Kingdom"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P17": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P17",
+              "hash": "e3e62ff4e9b0e3a5e2a922fab1da79095e4d7edb",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 145,
+                  "id": "Q145"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q84$612786A5-1352-4A1B-9C3D-25B596A07A48",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q2256": {
+      "type": "item",
+      "id": "Q2256",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Birmingham"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "city and metropolitan borough in the West Midlands, England"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P17": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P17",
+              "hash": "e3e62ff4e9b0e3a5e2a922fab1da79095e4d7edb",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 145,
+                  "id": "Q145"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q2256$AD7D74D2-3C26-4A1B-9C3D-3FED3DE6E6B5",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q23436": {
+      "type": "item",
+      "id": "Q23436",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Edinburgh"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "capital city of Scotland"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P17": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P17",
+              "hash": "e3e62ff4e9b0e3a5e2a922fab1da79095e4d7edb",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 145,
+                  "id": "Q145"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q23436$C789AB48-E62D-4A1B-9C3D-97D24D6F5D42",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  },
+  "success": 1
+}

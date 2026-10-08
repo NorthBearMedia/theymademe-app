@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "no-such-entity",
+    "info": "Could not find an entity with the ID \"Q0\".",
+    "*": "See https://www.wikidata.org/w/api.php for API usage."
+  },
+  "servedby": "mw-api-ext.eqiad.main-5b4c8f6d9-x7k2p"
+}

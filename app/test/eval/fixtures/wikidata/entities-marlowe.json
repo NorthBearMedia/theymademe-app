@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "Q999000070": {
+      "type": "item",
+      "id": "Q999000070",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Zoë Marlowe"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English novelist"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P19",
+              "hash": "e86dbd5ae30c7a3f5cc15facd485f09d29198d03",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 84,
+                  "id": "Q84"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000070$C50D7FDB-BE46-4A1B-9C3D-E442CBF23BE3",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "9408414f16525f9fcd8dd454a2cf5f3c3f0ce57d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581072,
+                  "id": "Q6581072"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000070$013F0AF2-7654-4A1B-9C3D-983D118205F4",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000070$206C6955-1D51-4A1B-9C3D-013F0AF23A85",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "3d779ddd6bba698b5cc0065972a61632e7a899fd",
+              "datavalue": {
+                "value": {
+                  "time": "+1950-12-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000070$983D1182-7D71-4A1B-9C3D-C50D7FDB97CC",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  },
+  "success": 1
+}

@@ -1,0 +1,83 @@
+{
+  "searchinfo": {
+    "search": "Edmund Fairweather"
+  },
+  "search": [
+    {
+      "id": "Q999000001",
+      "title": "Q999000001",
+      "pageid": 999000001,
+      "display": {
+        "label": {
+          "value": "Edmund Fairweather",
+          "language": "en"
+        },
+        "description": {
+          "value": "English civil engineer",
+          "language": "en"
+        }
+      },
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q999000001",
+      "concepturi": "http://www.wikidata.org/entity/Q999000001",
+      "label": "Edmund Fairweather",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Edmund Fairweather"
+      },
+      "description": "English civil engineer"
+    },
+    {
+      "id": "Q999000060",
+      "title": "Q999000060",
+      "pageid": 999000060,
+      "display": {
+        "label": {
+          "value": "Edmund Fairweather-Smith",
+          "language": "en"
+        },
+        "description": {
+          "value": "English cricketer",
+          "language": "en"
+        }
+      },
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q999000060",
+      "concepturi": "http://www.wikidata.org/entity/Q999000060",
+      "label": "Edmund Fairweather-Smith",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Edmund Fairweather-Smith"
+      },
+      "description": "English cricketer"
+    },
+    {
+      "id": "Q999000061",
+      "title": "Q999000061",
+      "pageid": 999000061,
+      "display": {
+        "label": {
+          "value": "Edmund Fairweather",
+          "language": "en"
+        },
+        "description": {
+          "value": "Wikimedia disambiguation page",
+          "language": "en"
+        }
+      },
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q999000061",
+      "concepturi": "http://www.wikidata.org/entity/Q999000061",
+      "label": "Edmund Fairweather",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Edmund Fairweather"
+      },
+      "description": "Wikimedia disambiguation page"
+    }
+  ],
+  "success": 1
+}

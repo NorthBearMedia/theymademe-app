@@ -1,0 +1,1309 @@
+{
+  "entities": {
+    "Q999000020": {
+      "type": "item",
+      "id": "Q999000020",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000020$B66C0707-12C6-4A1B-9C3D-771CA4E0FB82",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000020$94400A3E-472B-4A1B-9C3D-B66C07074E74",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "ec6de5fbe6cb81646303ceb66887e886ea1af346",
+              "datavalue": {
+                "value": {
+                  "time": "+1900-00-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 8,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000020$771CA4E0-D435-4A1B-9C3D-79AC9749B06C",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000021": {
+      "type": "item",
+      "id": "Q999000021",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000021$DD028918-F6E1-4A1B-9C3D-14F0269117ED",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000021$75617BB5-4D13-4A1B-9C3D-DD028918D0CE",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "20d5cd95f71dc4177cb25af6b14ad2526315b3b6",
+              "datavalue": {
+                "value": {
+                  "time": "-0100-07-12T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000021$14F02691-8873-4A1B-9C3D-8CC38FAE41D2",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000022": {
+      "type": "item",
+      "id": "Q999000022",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "somevalue",
+              "property": "P19",
+              "hash": "1db0a70c4cbfe5f40aae164245e184a196db62d9",
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000022$4625F3D2-6326-4A1B-9C3D-B11B7F755DA3",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000022$14BB8781-0A57-4A1B-9C3D-B89E3A6D12FD",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000022$3F3FE46C-BC33-4A1B-9C3D-14BB87815C33",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "somevalue",
+              "property": "P569",
+              "hash": "8560a47a9be78989868b6ace0f3f727f5b62ec2b",
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000022$B89E3A6D-7719-4A1B-9C3D-03C24B07A4DE",
+            "rank": "normal"
+          }
+        ],
+        "P570": [
+          {
+            "mainsnak": {
+              "snaktype": "novalue",
+              "property": "P570",
+              "hash": "efaaa6801890f71566035b72aefee2fe2b6e6076",
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000022$03C24B07-22D2-4A1B-9C3D-4625F3D2FBDF",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000023": {
+      "type": "item",
+      "id": "Q999000023",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000023$85E1D2D2-CB4E-4A1B-9C3D-87A50941B30D",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000024": {
+      "type": "item",
+      "id": "Q999000024",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "fictional character"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000024$928B7B28-F1F8-4A1B-9C3D-A64DBE8C8308",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "ffedd990069b36322e5593950ecc960245feff86",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 15632617,
+                  "id": "Q15632617"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000024$1CC54D07-B669-4A1B-9C3D-928B7B281154",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "2f7e61def50e455251c066fe9c28f0532e05ff2d",
+              "datavalue": {
+                "value": {
+                  "time": "+1902-03-03T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000024$A64DBE8C-972A-4A1B-9C3D-9C43303B6F07",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000025": {
+      "type": "item",
+      "id": "Q999000025",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P19",
+              "hash": "e86dbd5ae30c7a3f5cc15facd485f09d29198d03",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 84,
+                  "id": "Q84"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$AEF519F9-761F-4A1B-9C3D-83754A819DE1",
+            "rank": "normal"
+          }
+        ],
+        "P20": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P20",
+              "hash": "b01fd303d0beca634834ff682cd0731434ac7ec8",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 23436,
+                  "id": "Q23436"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$7AE2797A-0286-4A1B-9C3D-2DAD1F127410",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$C991938C-CB7A-4A1B-9C3D-CABDEC3ADBA4",
+            "rank": "normal"
+          }
+        ],
+        "P22": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P22",
+              "hash": "bf06a267ee1ca6191ee533cac2b3e91b21bee7e9",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000030,
+                  "id": "Q999000030"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$2DAD1F12-98FB-4A1B-9C3D-E89E9E43EAEA",
+            "rank": "normal"
+          },
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P22",
+              "hash": "ad334608dba3397d9cf5d19e3259810ee4c3d17d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000032,
+                  "id": "Q999000032"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$E89E9E43-FB64-4A1B-9C3D-4661FECA1896",
+            "rank": "normal",
+            "qualifiers": {
+              "P1039": [
+                {
+                  "snaktype": "value",
+                  "property": "P1039",
+                  "hash": "bd8f90f18b3e0458c2adb19c028b30f42acf07c9",
+                  "datavalue": {
+                    "value": {
+                      "entity-type": "item",
+                      "numeric-id": 999000099,
+                      "id": "Q999000099"
+                    },
+                    "type": "wikibase-entityid"
+                  },
+                  "datatype": "wikibase-item"
+                }
+              ]
+            },
+            "qualifiers-order": [
+              "P1039"
+            ]
+          }
+        ],
+        "P25": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P25",
+              "hash": "c11a6a2d695dfda119b47f4c6ab6fa4cd7a12d9d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000031,
+                  "id": "Q999000031"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$4661FECA-FE2E-4A1B-9C3D-6D07CDDCCBC7",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000025$F63C5952-FC07-4A1B-9C3D-C991938CF6F7",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "d516e8e7b397aad6863de83a074c20bf162e9fb0",
+              "datavalue": {
+                "value": {
+                  "time": "+1905-01-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000025$CABDEC3A-5B38-4A1B-9C3D-E43D4E4AE877",
+            "rank": "normal"
+          },
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "3c61095cec05a5d5da217200a0d3d859bc37f72d",
+              "datavalue": {
+                "value": {
+                  "time": "+1902-05-17T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000025$E43D4E4A-CA35-4A1B-9C3D-492E539ACC70",
+            "rank": "preferred"
+          },
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "9007d2d6dc0c2d9dc1a22746b6b5d72f1509ddce",
+              "datavalue": {
+                "value": {
+                  "time": "+1890-01-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000025$492E539A-AF3E-4A1B-9C3D-AEF519F9B43F",
+            "rank": "deprecated"
+          }
+        ],
+        "P570": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P570",
+              "hash": "5cde910f1c52a33d584cc9df2712e9c73e62d2d3",
+              "datavalue": {
+                "value": {
+                  "time": "+1968-01-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 10,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000025$83754A81-92CF-4A1B-9C3D-7AE2797A2E44",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000026": {
+      "type": "item",
+      "id": "Q999000026",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000026$AF6B81A3-64E0-4A1B-9C3D-32338DB31C00",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000026$BB4A5BD6-827B-4A1B-9C3D-AF6B81A3D497",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "3759fc5ace0ab782d8d3e010a3d01bee6eb92fa3",
+              "datavalue": {
+                "value": {
+                  "time": "+1902-04-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000026$32338DB3-2E01-4A1B-9C3D-E6F11A95A692",
+            "rank": "normal"
+          },
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "973540ca94696267bcd06bbb24d914ec838f6406",
+              "datavalue": {
+                "value": {
+                  "time": "+1905-04-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000026$E6F11A95-E182-4A1B-9C3D-41FBA9708D80",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000027": {
+      "type": "item",
+      "id": "Q999000027",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000027$7AEBF368-A933-4A1B-9C3D-9EDCC8F80BF3",
+            "rank": "normal"
+          }
+        ],
+        "P22": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P22",
+              "hash": "bf06a267ee1ca6191ee533cac2b3e91b21bee7e9",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000030,
+                  "id": "Q999000030"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000027$068BE1A9-80E2-4A1B-9C3D-BD49E3B59467",
+            "rank": "normal"
+          },
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P22",
+              "hash": "ad334608dba3397d9cf5d19e3259810ee4c3d17d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000032,
+                  "id": "Q999000032"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000027$BD49E3B5-8EFF-4A1B-9C3D-3580EF8F566D",
+            "rank": "normal"
+          }
+        ],
+        "P25": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P25",
+              "hash": "c11a6a2d695dfda119b47f4c6ab6fa4cd7a12d9d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 999000031,
+                  "id": "Q999000031"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000027$3580EF8F-54CE-4A1B-9C3D-B24B4EEA0CA6",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000027$9AC0B3A4-B7EB-4A1B-9C3D-7AEBF368AA12",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "5a421978c9d0d92adfd40c730ca6a2aa79d478ea",
+              "datavalue": {
+                "value": {
+                  "time": "+1904-03-04T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000027$9EDCC8F8-C5B7-4A1B-9C3D-068BE1A92457",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000028": {
+      "type": "item",
+      "id": "Q999000028",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000028$557AACB2-667B-4A1B-9C3D-AA9FD899E07F",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000028$82FFB544-9109-4A1B-9C3D-557AACB277A3",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "d516e8e7b397aad6863de83a074c20bf162e9fb0",
+              "datavalue": {
+                "value": {
+                  "time": "+1905-01-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000028$AA9FD899-5A5B-4A1B-9C3D-5D5DE11A83D4",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000029": {
+      "type": "item",
+      "id": "Q999000029",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Robert Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": []
+    },
+    "Q999000030": {
+      "type": "item",
+      "id": "Q999000030",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Alfred Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English clerk"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P19": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P19",
+              "hash": "e86dbd5ae30c7a3f5cc15facd485f09d29198d03",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 84,
+                  "id": "Q84"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000030$152F4655-C66C-4A1B-9C3D-F34A84661047",
+            "rank": "normal"
+          }
+        ],
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000030$5B552595-6C1E-4A1B-9C3D-5ED71B3E8FC5",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000030$E46697CD-E6C3-4A1B-9C3D-5B552595F632",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "326523729b693417bd3410925caf9384e8c71e9b",
+              "datavalue": {
+                "value": {
+                  "time": "+1870-00-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 9,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000030$5ED71B3E-511A-4A1B-9C3D-68AB86C3E003",
+            "rank": "normal"
+          }
+        ],
+        "P570": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P570",
+              "hash": "852a42675ee8eac6ddf473c6f7203759de1db5fb",
+              "datavalue": {
+                "value": {
+                  "time": "+1935-06-01T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000030$68AB86C3-A175-4A1B-9C3D-152F4655721D",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000031": {
+      "type": "item",
+      "id": "Q999000031",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Beatrice Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English teacher"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "9408414f16525f9fcd8dd454a2cf5f3c3f0ce57d",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581072,
+                  "id": "Q6581072"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000031$59F853A8-5912-4A1B-9C3D-CCCAB0258A74",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000031$718C08FF-2A45-4A1B-9C3D-59F853A82845",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "cce704a712729b327b24c5fa2cdb15f66b16160f",
+              "datavalue": {
+                "value": {
+                  "time": "+1874-09-12T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000031$CCCAB025-4D89-4A1B-9C3D-B6645D1E1E96",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000032": {
+      "type": "item",
+      "id": "Q999000032",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "Cyril Quill"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English solicitor"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000032$4C591377-A72B-4A1B-9C3D-6FF7899FDCDC",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000032$F633453B-B4C9-4A1B-9C3D-4C59137713E1",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  },
+  "success": 1
+}

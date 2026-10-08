@@ -1,0 +1,215 @@
+{
+  "entities": {
+    "Q999000040": {
+      "type": "item",
+      "id": "Q999000040",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "John Ashdown"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "English cricketer"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000040$BDF43A27-D025-4A1B-9C3D-BA07AE99128B",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000040$A39BA710-B710-4A1B-9C3D-BDF43A27F3CE",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "162cacd643918c8fdb15a2800be7a30aec9d5273",
+              "datavalue": {
+                "value": {
+                  "time": "+1888-03-02T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 11,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000040$BA07AE99-C097-4A1B-9C3D-DBA2F354E4FD",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000041": {
+      "type": "item",
+      "id": "Q999000041",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "John Ashdown"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "Scottish politician"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P21": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P21",
+              "hash": "6dcbb906ae7100788ab950b4203e51d3b27e47ef",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 6581097,
+                  "id": "Q6581097"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000041$9DB804B5-1F13-4A1B-9C3D-77650DC07352",
+            "rank": "normal"
+          }
+        ],
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "2b769bf8d16c147a405b18b2acd01e0b42d42d5c",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 5,
+                  "id": "Q5"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000041$1928021A-35E9-4A1B-9C3D-9DB804B54ADA",
+            "rank": "normal"
+          }
+        ],
+        "P569": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P569",
+              "hash": "e62f0fbd8ca24a769b1cf4e92e2339a9b6c40b05",
+              "datavalue": {
+                "value": {
+                  "time": "+1888-00-00T00:00:00Z",
+                  "timezone": 0,
+                  "before": 0,
+                  "after": 0,
+                  "precision": 9,
+                  "calendarmodel": "http://www.wikidata.org/entity/Q1985727"
+                },
+                "type": "time"
+              },
+              "datatype": "time"
+            },
+            "type": "statement",
+            "id": "Q999000041$77650DC0-450D-4A1B-9C3D-7E4B6145B1CA",
+            "rank": "normal"
+          }
+        ]
+      }
+    },
+    "Q999000042": {
+      "type": "item",
+      "id": "Q999000042",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "John Ashdown"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "steam locomotive"
+        }
+      },
+      "aliases": {},
+      "claims": {
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "hash": "28517ebd0126dc76fe946b855a418ad96877d699",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 11446,
+                  "id": "Q11446"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q999000042$A80439B8-D54A-4A1B-9C3D-B77E30BBA1E1",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  },
+  "success": 1
+}

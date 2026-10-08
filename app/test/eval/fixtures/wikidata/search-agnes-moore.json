@@ -1,0 +1,36 @@
+{
+  "searchinfo": {
+    "search": "Agnes Moore"
+  },
+  "search": [
+    {
+      "id": "Q999000003",
+      "title": "Q999000003",
+      "pageid": 999000003,
+      "display": {
+        "label": {
+          "value": "Agnes Fairweather",
+          "language": "en"
+        },
+        "description": {
+          "value": "English suffragist",
+          "language": "en"
+        }
+      },
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q999000003",
+      "concepturi": "http://www.wikidata.org/entity/Q999000003",
+      "label": "Agnes Fairweather",
+      "match": {
+        "type": "alias",
+        "language": "en",
+        "text": "Agnes Moore"
+      },
+      "description": "English suffragist",
+      "aliases": [
+        "Agnes Moore"
+      ]
+    }
+  ],
+  "success": 1
+}

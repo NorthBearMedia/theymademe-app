@@ -1,0 +1,33 @@
+{
+  "searchinfo": {
+    "search": "Zoe Marlowe"
+  },
+  "search": [
+    {
+      "id": "Q999000070",
+      "title": "Q999000070",
+      "pageid": 999000070,
+      "display": {
+        "label": {
+          "value": "Zoë Marlowe",
+          "language": "en"
+        },
+        "description": {
+          "value": "English novelist",
+          "language": "en"
+        }
+      },
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q999000070",
+      "concepturi": "http://www.wikidata.org/entity/Q999000070",
+      "label": "Zoë Marlowe",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Zoë Marlowe"
+      },
+      "description": "English novelist"
+    }
+  ],
+  "success": 1
+}
