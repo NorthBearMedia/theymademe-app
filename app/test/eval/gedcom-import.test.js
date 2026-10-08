@@ -53,6 +53,12 @@ check('binary junk -> Not a GEDCOM file', throwsMsg(() => parseGedcom(Buffer.fro
 check('empty string -> Not a GEDCOM file', throwsMsg(() => parseGedcom(''), 'Not a GEDCOM file'));
 check('null / number -> Not a GEDCOM file', throwsMsg(() => parseGedcom(null), 'Not a GEDCOM file') && throwsMsg(() => parseGedcom(42), 'Not a GEDCOM file'));
 {
+  // ~550k bare records fit in 7 MB; the record cap keeps memory bounded for a hostile 15 MB upload
+  const bare = ['0 HEAD'];
+  for (let k = 0; k < 550000; k++) bare.push(`0 @I${k}@ INDI`);
+  check('more than 500k INDI records rejected (memory amplification guard)', throwsMsg(() => parseGedcom(bare.join('\n')), 'GEDCOM too large'));
+}
+{
   const srcText = fs.readFileSync(path.join(__dirname, '../../src/services/gedcom-import.js'), 'utf8');
   check('module source has no eval / Function constructor', !/\beval\s*\(/.test(srcText) && !/new\s+Function\s*\(/.test(srcText));
   check('module requires nothing (stdlib only, no I/O modules)', !/require\(/.test(srcText));

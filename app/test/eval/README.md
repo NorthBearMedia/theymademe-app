@@ -65,3 +65,22 @@ DISCOVER slots #4+, and the harness scores how well it did. An *authenticated*
 token is required for tree traversal (an unauthenticated session only allows
 search). The mock harness proves the *logic*; only a live run proves accuracy
 against the messiness of real records.
+
+## Live runs (real FamilySearch)
+
+`run-live.js` runs the real engine against the real API and scores it against an answer key
+(see `my-family.example.json`; add `input.seed_ancestors` to seed the grandparents exactly as
+the live intake form does). With no token it uses the app's search-only session; set
+`FS_ACCESS_TOKEN` (a logged-in token — keep it in the environment's secrets, never in chat)
+for tree traversal and source verification.
+
+In the Claude Code cloud sandbox, Node's `fetch` ignores the egress proxy unless you set
+`NODE_USE_ENV_PROXY=1`:
+
+```bash
+NODE_USE_ENV_PROXY=1 WIKIDATA_ENABLED=false node test/eval/run-live.js path/to/family.json
+```
+
+First live result (search-only token, parents + grandparents given): 10 of 28 correct,
+no confirmed wrong match, 17 missing — the engine refuses to accept parents it cannot
+verify without source access. Expect recall to rise sharply with a logged-in token.

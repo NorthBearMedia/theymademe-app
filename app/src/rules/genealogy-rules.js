@@ -20,7 +20,7 @@
 const crypto = require('crypto');
 
 const RULES = {
-  version: '2.3.0',
+  version: '2.4.0',
 
   // ── Parent→child birth-year gap (SEX-SPECIFIC) ─────────────────────────
   // A parent is born this many years before their child. Bounds differ by sex
@@ -158,6 +158,23 @@ const RULES = {
     fatherDirectSearchRequiresNameEvidence: true,
   },
 
+  // ── Identity linking (matching a customer-named person to a FamilySearch record) ──
+  // Learned from the FIRST LIVE RUN against FamilySearch: a wrong link is far worse
+  // than no link, because every ancestor discovered from it is wrong too — and would
+  // be recorded as Verified. Linking therefore demands real identity evidence.
+  linking: {
+    // The candidate's FIRST given name must match the customer's FIRST given name
+    // (exact, spelling variant, diminutive or initial). A match on a MIDDLE name never
+    // counts: the live run linked "Janet Mary Woodward" to "Mary Jane Woodward".
+    requireFirstGivenNameMatch: true,
+    // If the customer gave a full date or month+year ("August 1935"), they know it:
+    // the candidate's birth year must be within this many years (not the usual ±5/±8).
+    preciseDateYearTolerance: 2,
+    // The customer gave a birthplace but the candidate has none — nothing but the name
+    // and year to go on, so the year must be (almost) exact.
+    placeUnknownMaxYearDiff: 1,
+  },
+
   // ── External corroboration (extra evidence, small and CAPPED) ──────────
   // Independent sources can nudge confidence UP when they agree and raise a
   // human-review flag when they conflict. They can never override the gates
@@ -240,7 +257,7 @@ suggest, but you may NOT invent looser rules or override these thresholds.
    - Primary record types: ${s.primaryCategories.join(', ')}.
    - A person born ${g.civilRegistrationYear}+ with ZERO primary records cannot exceed ${g.unsourcedCivilEraMaxPercent}% ("Possible") — never call them Verified.
    - Common surnames need MORE evidence; be especially skeptical of direct-search matches for them.
-5. SURNAMES: a father's surname must match the child's. A mismatch is a red flag.
+5. NAMES: a father's surname must match the child's (a mismatch is a red flag), and a person's FIRST given name must match — a match on a middle name alone is never enough to call two records the same person.
 6. CONFIDENCE CALIBRATION (apply, don't inflate):
    - Verified (${c.levelCutoffs.verified}%+): tree-verified or direct-search WITH primary sources AND FreeBMD agreement.
    - Probable (${c.levelCutoffs.probable}–${c.levelCutoffs.verified - 1}%): solid but with a gap.

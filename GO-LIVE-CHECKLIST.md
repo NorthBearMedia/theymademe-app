@@ -1,3 +1,28 @@
+# 🚨 URGENT — the live site's SSL certificate has EXPIRED
+
+Found on 8 Oct 2026 while testing: `theymademe.co.uk` serves a Let's Encrypt certificate
+that expired on **21 Sep 2026**. Browsers show a full-page warning and **JotForm's webhook
+to `https://theymademe.co.uk/api/...` will fail TLS verification** — no orders can arrive.
+
+**Cause (found in the repo):** certbot renews the certificate files on disk, but nothing
+ever told nginx to reload, and nginx only reads a certificate at start. The entrypoint
+only watched for the *first* certificate. (Fixed in this branch — see below.)
+
+**Fix it now, on the server:**
+```
+cd /opt/theymademe-app
+docker compose logs --tail=60 certbot            # did renewal succeed? any errors?
+docker compose exec certbot certbot certificates # shows the expiry of the files ON DISK
+docker compose exec nginx nginx -s reload        # if the file on disk is new, this alone fixes the site
+# if the file on disk is ALSO expired:
+docker compose exec certbot certbot renew --force-renewal && docker compose exec nginx nginx -s reload
+```
+**Then deploy this branch** (`git pull && docker compose up -d --build`): `nginx/entrypoint.sh`
+now reloads nginx every 6 hours (skipped safely if the config test fails), so a renewed
+certificate is picked up automatically in future.
+
+---
+
 # They Made Me — Go-Live Checklist
 
 The code side of the customer journey is complete and tested. A NEW intake

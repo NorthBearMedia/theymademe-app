@@ -14,8 +14,10 @@ async function apiRequest(path, options = {}, retryCount = 0) {
   }
   if (!tokenData) throw new Error('FamilySearch not connected — please authenticate first');
 
-  // Search endpoints use Atom format, everything else uses GEDCOM X
-  const accept = path.includes('/search')
+  // Search-style endpoints return Atom feeds; everything else uses GEDCOM X.
+  // (Live check: /platform/records/personas answers 406 unless Atom is requested.)
+  const wantsAtom = path.includes('/search') || path.includes('/records/personas') || /\/matches(\?|$)/.test(path);
+  const accept = wantsAtom
     ? 'application/x-gedcomx-atom+json'
     : 'application/x-gedcomx-v1+json';
 
@@ -40,7 +42,7 @@ async function apiRequest(path, options = {}, retryCount = 0) {
     // For tree endpoints (getParents, getPersonDetails, etc.):
     // Don't clear the token — it may still work for search.
     // Instead, throw a specific error the engine can catch.
-    const isTreeEndpoint = path.includes('/parents') || path.includes('/spouses') ||
+    const isTreeEndpoint = path.includes('/parents') || path.includes('/spouses') || path.includes('/ancestry') ||
       (path.includes('/persons/') && !path.includes('/search'));
     if (isTreeEndpoint) {
       throw new Error('FamilySearch tree access requires authenticated token — search still available');

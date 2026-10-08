@@ -44,6 +44,7 @@ const MAX_WARNINGS = 200;      // cap the warnings array (hostile / garbage file
 const MAX_GEN_CAP = 12;        // 2^13 slots max for extractAncestors
 const MAX_ROOT_GEN_CAP = 10;   // suggestRoots does a BFS per candidate
 const MAX_ROOTS = 20;
+const MAX_RECORDS = 500000;    // INDI / FAM count cap: a 15MB file can hold ~1M bare records (hundreds of MB once parsed)
 const LIVING_WINDOW_YEARS = 110;
 
 const BIRTH_TAGS = ['BIRT', 'CHR', 'BAPM', 'CHRA'];
@@ -247,6 +248,7 @@ function parseGedcom(text, opts) {
       const death = pickEvent(rec.ev, DEATH_TAGS, currentYear);
       const living = !hasEventRecord(rec.ev, DEATH_TAGS) &&
         (birth.year === null || birth.year > currentYear - LIVING_WINDOW_YEARS);
+      if (individuals.size >= MAX_RECORDS) throw new Error('GEDCOM too large');
       individuals.set(rec.id, {
         id: rec.id,
         given: nm.given,
@@ -261,6 +263,7 @@ function parseGedcom(text, opts) {
       });
     } else if (recType === 2) {
       if (families.has(rec.id)) { warn(`Duplicate family ${rec.id} ignored`); return; }
+      if (families.size >= MAX_RECORDS) throw new Error('GEDCOM too large');
       families.set(rec.id, { id: rec.id, husb: rec.husb, wife: rec.wife, children: rec.children });
     }
   }

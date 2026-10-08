@@ -38,6 +38,21 @@ Run the guard: `node app/test/eval/rules-governance.test.js`
 
 ---
 
+## Changelog — v2.4.0 (first LIVE run against FamilySearch)
+
+The engine was run for the first time against the real FamilySearch API (beta, search-only
+token) on the Ahlfors-Hunt tree. It found a precision bug no mock test could — new
+`RULES.linking`:
+
+- **The first given name must match.** "Janet Mary Woodward" was linked to "Mary Jane
+  Woodward" because a match on a MIDDLE name counted as a match. A wrong link is worse
+  than none: every ancestor discovered from it is wrong too, and would be recorded as
+  Verified once tree access is available. A middle-name-only match never counts now.
+- **A precise customer date is held to ±2 years** (instead of ±5/±8) — "August 1935"
+  is something the customer knows. A bare year ("1935") keeps the normal tolerance.
+- **No birthplace on the candidate** while the customer gave one: the year must be
+  within 1 year, since name + year is all there is to go on.
+
 ## Changelog — v2.3.0 (more records, governed)
 
 Adds **external corroboration** — a new, small, capped evidence section

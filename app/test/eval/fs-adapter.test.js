@@ -59,13 +59,16 @@ const recordEntry = (title) => ({ title, score: 2.1, content: { gedcomx: {
 
 // ── fake fetch ────────────────────────────────────────────────────────
 let calls = [];
+let lastAccept = {};
 let ancestryMode = 'ok';
-global.fetch = async (url) => {
+global.fetch = async (url, opts) => {
   calls.push(String(url));
+  lastAccept[String(url).split('?')[0]] = (opts && opts.headers && opts.headers.Accept) || '';
   const u = String(url);
   const json = (obj, status = 200) => ({ ok: status < 400, status, headers: { get: () => null }, json: async () => obj, text: async () => JSON.stringify(obj) });
   if (u.includes('/platform/tree/ancestry')) {
     if (ancestryMode === 'fail') return json({ error: 'boom' }, 500);
+    if (ancestryMode === '401') return json({ error: 'unauthorized' }, 401);
     const root = new URL(u).searchParams.get('person');
     return json(pedigree(root, 15));
   }
@@ -122,12 +125,26 @@ global.fetch = async (url) => {
   ancestryMode = 'ok';
   config.FS_USE_PEDIGREE = false;
 
+  console.log('\nLive-test regressions (found against the real beta API):');
+  ancestryMode = '401';
+  let msg = '';
+  try { await fsApi.getAncestry('ROOT', 4); } catch (e) { msg = e.message; }
+  check('ancestry 401 = "needs authenticated token", NOT "token expired"', /authenticated token/.test(msg) && !/expired/.test(msg), msg.slice(0, 60));
+  check('ancestry 401 does NOT clear the stored FamilySearch token', db.getSetting('fs_access_token') === 'test-token');
+  config.FS_USE_PEDIGREE = true;
+  const srcA = new FamilySearchSource();
+  const pa = await srcA.getParents('X9');
+  check('pedigree 401 falls back safely and the token survives', !!pa && db.getSetting('fs_access_token') === 'test-token');
+  config.FS_USE_PEDIGREE = false; ancestryMode = 'ok';
+
   console.log('\nRecords search + hints:');
   calls = [];
   const recs = await new FamilySearchSource().searchRecords({ givenName: 'Frederick', surname: 'Hunt', birthDate: '1902', recordCountry: 'England' });
   const recCall = calls.find(c => c.includes(config.FS_RECORDS_SEARCH_PATH)) || '';
   check('records search hits the configured path', !!recCall);
   check('record query uses q.* vocabulary + country filter', /q\.givenName=Frederick/.test(recCall) && /q\.birthLikeDate=1902/.test(recCall) && /q\.recordCountry=England/.test(recCall));
+  check('records search asks for the Atom media type (live API answers 406 otherwise)', /atom/.test(lastAccept[Object.keys(lastAccept).find(k => k.includes(config.FS_RECORDS_SEARCH_PATH))] || ''));
+  check('default records path is the one that exists on the live API', config.FS_RECORDS_SEARCH_PATH === '/platform/records/personas');
   check('records parsed', recs.length === 1 && recs[0].entryTitle === 'England and Wales Census, 1911');
   const hints = await new FamilySearchSource().getRecordHints('F1');
   check('hint titles summarised for internal classification', hints.length === 2 && hints[0].title === 'England and Wales Census, 1911');

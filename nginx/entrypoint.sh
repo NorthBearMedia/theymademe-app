@@ -27,5 +27,22 @@ else
     ) &
 fi
 
+# Pick up RENEWED certificates.
+# certbot (a separate container) renews the files on disk, but nginx only reads a
+# certificate at start or reload. Without this the old certificate keeps being served
+# from memory until it expires — which took the live site down on 21 Sep 2026.
+# Reload every 6 hours (a reload is graceful and cheap); skip if the config test fails
+# so a bad config can never take the site down.
+(
+    while true; do
+        sleep 21600
+        if nginx -t >/dev/null 2>&1; then
+            nginx -s reload && echo "Periodic reload done — certificates refreshed."
+        else
+            echo "Periodic reload skipped: nginx config test failed."
+        fi
+    done
+) &
+
 # Run the default nginx entrypoint
 exec /docker-entrypoint.sh "$@"

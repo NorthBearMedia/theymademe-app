@@ -508,6 +508,14 @@ function isNameVariant(name1, name2) {
 // Classifies FS source records and scores ancestors based on actual
 // historical records, person facts, family context, and plausibility.
 
+// A customer-typed date is "precise" when it carries more than a bare year:
+// a month name ("August 1935") or a numeric day/month ("01/09/1959").
+function isPreciseDate(str) {
+  const v = String(str || '');
+  return /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(v) ||
+         /\b\d{1,2}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{2,4}\b/.test(v);
+}
+
 function classifySourceRecord(title) {
   const t = (title || '').toLowerCase();
 
@@ -1312,6 +1320,24 @@ class ResearchEngine {
   }
 
   // Check if two names are similar enough
+  /**
+   * Do two people share the same FIRST given name? (exact, spelling variant,
+   * diminutive, or initial). Unlike namesSimilar() this does NOT treat a match on a
+   * middle name as a match: namesSimilar('Mary', 'Janet Mary') is true because
+   * 'janet mary'.includes('mary'), which linked "Janet Mary Woodward" to
+   * "Mary Jane Woodward" on the first live run (rulebook: linking).
+   */
+  firstGivenMatches(candGiven, targetGiven) {
+    const cf = String(candGiven || '').trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '').toLowerCase();
+    const tf = String(targetGiven || '').trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '').toLowerCase();
+    if (!cf || !tf) return false;
+    if (cf === tf) return true;
+    if (cf.length === 1 || tf.length === 1) return cf[0] === tf[0];   // initial
+    if (isNameVariant(cf, tf)) return true;
+    if (cf.includes(tf) || tf.includes(cf)) return false;             // substring alone ('ann' in 'joann') is not enough
+    return this.namesSimilar(cf, tf);                                  // diminutive table
+  }
+
   namesSimilar(a, b) {
     if (!a || !b) return false;
     const na = a.toLowerCase().trim();
@@ -1454,7 +1480,7 @@ class ResearchEngine {
 
         // Name must match
         const candParts = parseNameParts(cand.name || '');
-        if (!this.namesSimilar(np.givenName, candParts.givenName)) continue;
+        if (!this.firstGivenMatches(candParts.givenName, np.givenName)) continue;
         if (np.surname && candParts.surname) {
           const s1 = np.surname.toLowerCase();
           const s2 = candParts.surname.toLowerCase();
@@ -2097,7 +2123,12 @@ class ResearchEngine {
             if (this.rejectedFsIds.has(cand.id)) continue;
 
             const candFirst = (cand.name || '').split(' ')[0];
-            if (!this.namesSimilar(candFirst, np.givenName)) continue;
+            if (RULES.linking.requireFirstGivenNameMatch) {
+              if (!this.firstGivenMatches(candFirst, np.givenName)) {
+                console.log(`[Engine]     → first given name '${candFirst}' ≠ '${String(np.givenName).split(' ')[0]}' (a middle-name match is not enough)`);
+                continue;
+              }
+            } else if (!this.namesSimilar(candFirst, np.givenName)) continue;
 
             // Surname must match (exact or very close) — prevents matching wrong family
             const candParts = parseNameParts(cand.name || '');
@@ -2114,7 +2145,19 @@ class ResearchEngine {
             // Wider tolerance for gen 3+ (great-grandparents and beyond): ±8 years
             const yearTolerance = rec.generation >= RULES.birthYearTolerance.olderGenerationFromGen
               ? RULES.birthYearTolerance.olderGenerationYears : RULES.birthYearTolerance.defaultYears;
-            if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > yearTolerance) continue;
+            // A precise customer date ("August 1935") is something they KNOW — hold candidates to it.
+            const effTolerance = isPreciseDate(rec.birth_date)
+              ? Math.min(yearTolerance, RULES.linking.preciseDateYearTolerance) : yearTolerance;
+            if (recBirthYear && candYear && Math.abs(recBirthYear - candYear) > effTolerance) {
+              console.log(`[Engine]     → rejected: b.${candYear} is ${Math.abs(recBirthYear - candYear)}y from the stated ${recBirthYear} (allowed ±${effTolerance})`);
+              continue;
+            }
+            // Customer gave a birthplace, candidate has none: only name + year to go on → year must be (almost) exact.
+            if (rec.birth_place && !cand.birthPlace && recBirthYear && candYear &&
+                Math.abs(recBirthYear - candYear) > RULES.linking.placeUnknownMaxYearDiff) {
+              console.log(`[Engine]     → rejected: no birthplace on candidate and b.${candYear} is not within ${RULES.linking.placeUnknownMaxYearDiff}y of ${recBirthYear}`);
+              continue;
+            }
 
             // If WE know the birth year but the candidate has none, reject for
             // post-1837 people with COMMON surnames. Uncommon surnames are safe with location match.
@@ -2618,7 +2661,7 @@ class ResearchEngine {
                     if (knownGivenName) {
                       // We have a known given name — verify it matches
                       const candParts2 = parseNameParts(cand.name || '');
-                      if (!this.namesSimilar(candParts2.givenName, knownGivenName)) {
+                      if (!this.firstGivenMatches(candParts2.givenName, knownGivenName)) {
                         console.log(`[Engine] asc#${fatherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candParts2.givenName}' doesn't match known '${knownGivenName}', SKIP`);
                         continue;
                       }
@@ -2843,7 +2886,7 @@ class ResearchEngine {
                     if (motherGiven) {
                       // We have a known given name — verify it matches
                       const candMotherParts = parseNameParts(cand.name || '');
-                      if (!this.namesSimilar(candMotherParts.givenName, motherGiven)) {
+                      if (!this.firstGivenMatches(candMotherParts.givenName, motherGiven)) {
                         console.log(`[Engine] asc#${motherAsc}:   ${cand.name} (${cand.id}) — auth unavailable, given name '${candMotherParts.givenName}' doesn't match known '${motherGiven}', SKIP`);
                         continue;
                       }
@@ -2988,7 +3031,7 @@ class ResearchEngine {
 
                         // Verify this is the right person (name + birth year match)
                         const candFirst = (fCand.name || '').split(' ')[0];
-                        if (!this.namesSimilar(candFirst, fNp.givenName)) continue;
+                        if (!this.firstGivenMatches(candFirst, fNp.givenName)) continue;
                         const candYear = normalizeDate(fCand.birthDate)?.year;
                         const fatherYear = normalizeDate(fatherRec.birth_date)?.year;
                         if (fatherYear && candYear && Math.abs(fatherYear - candYear) > 5) continue;

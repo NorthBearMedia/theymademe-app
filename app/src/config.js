@@ -21,7 +21,7 @@ module.exports = {
   // with a key that includes them (see GO-LIVE-CHECKLIST / MASTER-RULES).
   FS_USE_PEDIGREE: process.env.FS_USE_PEDIGREE === 'true',           // one Read-Ancestry call instead of per-person getParents
   FS_RECORD_HINTS_ENABLED: process.env.FS_RECORD_HINTS_ENABLED === 'true', // record hints as internal corroboration
-  FS_RECORDS_SEARCH_PATH: process.env.FS_RECORDS_SEARCH_PATH || '/platform/search/records', // UNVERIFIED path
+  FS_RECORDS_SEARCH_PATH: process.env.FS_RECORDS_SEARCH_PATH || '/platform/records/personas', // exists on the live API (406 without Atom Accept) — results still unverified
 
   // Geni.com OAuth
   GENI_CLIENT_ID: process.env.GENI_CLIENT_ID || '',

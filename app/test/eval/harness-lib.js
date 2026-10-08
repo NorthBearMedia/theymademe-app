@@ -21,7 +21,16 @@ function seedJob(db, jobId, input, generations) {
   if (input.mother_name) db.addAncestor(cd({ research_job_id: jobId, fs_person_id: '', name: input.mother_name,
     gender: 'Female', birth_date: anchors[3]?.birthDate || '', birth_place: anchors[3]?.birthPlace || input.birth_place || '',
     death_date: anchors[3]?.deathDate || '', death_place: anchors[3]?.deathPlace || '', ascendancy_number: 3, generation: 1 }));
+  // Seed extra customer-provided ancestors DIRECTLY, exactly as the live intake does
+  // (it writes asc 4-7 rows itself rather than relying on the free-text notes parser).
+  for (const a of (input.seed_ancestors || [])) {
+    db.addAncestor(cd({ research_job_id: jobId, fs_person_id: '', name: a.name,
+      gender: a.asc % 2 === 0 ? 'Male' : 'Female', birth_date: a.birth_date || '', birth_place: a.birth_place || '',
+      death_date: a.death_date || '', death_place: a.death_place || '', ascendancy_number: a.asc,
+      generation: Math.floor(Math.log2(a.asc)) }));
+  }
   for (const ascNum of [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]) {
+    if ((input.seed_ancestors || []).some(x => x.asc === ascNum)) continue;
     const a = anchors[ascNum];
     if (a && a.givenName) {
       db.addAncestor(cd({ research_job_id: jobId, fs_person_id: '', name: `${a.givenName} ${a.surname || ''}`.trim(),
