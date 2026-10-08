@@ -38,6 +38,109 @@ router.get('/new', requireAuth, (req, res) => {
   res.render('research-new', { error: null });
 });
 
+// ─── Import a family tree (GEDCOM upload) ──────────────────────────────
+// Two steps (no JS needed): upload → choose the subject → create the job.
+// The parsed file is kept in a temp file between steps (never in the session).
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4Import } = require('uuid');
+const importConfig = require('../config');
+const uploadGedcom = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
+const UPLOAD_DIR = () => path.join(importConfig.DATA_DIR, 'uploads');
+const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// The GEDCOM parser is loaded lazily so a missing/broken module degrades to a
+// clear message instead of an unhandled 500.
+function loadGedcom(res) {
+  try {
+    return require('../services/gedcom-import');
+  } catch (e) {
+    console.error('[Import] gedcom-import unavailable:', e.message);
+    res.status(503).render('research-import', { error: 'GEDCOM import is not available on this server yet.', preview: null });
+    return null;
+  }
+}
+
+function sweepOldUploads() {
+  try {
+    for (const f of fs.readdirSync(UPLOAD_DIR())) {
+      const fp = path.join(UPLOAD_DIR(), f);
+      if (Date.now() - fs.statSync(fp).mtimeMs > 60 * 60 * 1000) fs.unlinkSync(fp);
+    }
+  } catch (e) { /* directory may not exist yet */ }
+}
+
+router.get('/import', requireAuth, (req, res) => {
+  res.render('research-import', { error: null, preview: null });
+});
+
+router.post('/import', requireAuth, (req, res, next) => {
+  uploadGedcom.single('gedcom')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'That file is larger than 15 MB.' : `Upload failed: ${err.message}`;
+      return res.status(400).render('research-import', { error: msg, preview: null });
+    }
+    next();
+  });
+}, (req, res) => {
+  if (!req.file) return res.status(400).render('research-import', { error: 'Choose a .ged file to upload.', preview: null });
+  const gedcom = loadGedcom(res);
+  if (!gedcom) return;
+  let parsed;
+  try {
+    parsed = gedcom.parseGedcom(req.file.buffer.toString('utf8'));
+  } catch (e) {
+    return res.status(400).render('research-import', { error: `Could not read that file: ${e.message}`, preview: null });
+  }
+  const roots = gedcom.suggestRoots(parsed, 5).slice(0, 5);
+  if (!roots.length) {
+    return res.status(400).render('research-import', { error: 'No suitable subject found — the file needs at least one person whose parents are recorded.', preview: null });
+  }
+  const outlines = roots.map(r => ({ root: r, ancestors: gedcom.extractAncestors(parsed, r.id, 3) }));
+
+  sweepOldUploads();
+  fs.mkdirSync(UPLOAD_DIR(), { recursive: true });
+  const uploadId = uuidv4Import();
+  fs.writeFileSync(path.join(UPLOAD_DIR(), `${uploadId}.ged`), req.file.buffer);
+
+  res.render('research-import', {
+    error: null,
+    preview: { uploadId, filename: req.file.originalname, individualCount: parsed.individuals.size, warnings: parsed.warnings || [], outlines },
+  });
+});
+
+router.post('/import/confirm', requireAuth, (req, res) => {
+  const { upload_id, root_xref, customer_name, customer_email, generations, trust } = req.body;
+  if (!UPLOAD_ID_RE.test(upload_id || '')) return res.status(400).send('Invalid upload reference');
+  const filePath = path.join(UPLOAD_DIR(), `${upload_id}.ged`);
+  if (!fs.existsSync(filePath)) {
+    return res.status(410).render('research-import', { error: 'That upload has expired — please upload the file again.', preview: null });
+  }
+  if (!customer_name || !root_xref) return res.status(400).send('Customer name and subject are required');
+
+  const gedcom = loadGedcom(res);
+  if (!gedcom) return;
+  try {
+    const { createJobFromUploadedTree } = require('../services/job-seeding');
+    const gens = Math.min(6, Math.max(4, parseInt(generations, 10) || 6));
+    const parsed = gedcom.parseGedcom(fs.readFileSync(filePath, 'utf8'));
+    const ancestors = gedcom.extractAncestors(parsed, root_xref, gens);
+    const seedMaxAsc = trust === 'grandparents' ? 7 : 3;
+    const intake = gedcom.toIntake(ancestors, { seedMaxAsc });
+    const { jobId, seeded, leads } = createJobFromUploadedTree(db, {
+      customer_name, customer_email, generations: gens, ancestors, intake, seedMaxAsc,
+      meta: { _gedcom_root: root_xref, _gedcom_people: parsed.individuals.size },
+    });
+    fs.unlinkSync(filePath);
+    console.log(`[Import] GEDCOM job ${jobId}: seeded ${seeded} customer positions, ${leads} unverified hints`);
+    res.redirect(`/admin/research/${jobId}`);
+  } catch (e) {
+    console.error('[Import] failed:', e);
+    res.status(400).render('research-import', { error: `Could not create the job: ${e.message}`, preview: null });
+  }
+});
+
 // Start research
 router.post('/start', requireAuth, async (req, res) => {
   const {

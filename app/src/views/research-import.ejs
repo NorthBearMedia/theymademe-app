@@ -1,0 +1,92 @@
+<% if (typeof error !== 'undefined' && error) { %>
+    <div class="flash-error"><%= error %></div>
+<% } %>
+
+<% if (!preview) { %>
+<div class="card">
+    <h2>Import a Family Tree (GEDCOM)</h2>
+    <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px;">
+        Upload a <code>.ged</code> file exported from Ancestry, MyHeritage, FamilySearch or any family-tree program.
+        We pick the subject, seed the <strong>parents</strong> as customer data, and keep everyone further back as
+        <strong>unverified hints</strong> — the engine researches those positions independently, then cross-checks:
+        agreement adds a small bonus, disagreement is flagged for you to review.
+    </p>
+    <form action="/admin/research/import" method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+            <label>GEDCOM file (.ged, max 15&nbsp;MB) *</label>
+            <input type="file" name="gedcom" accept=".ged,.gedcom,text/plain" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Upload &amp; preview</button>
+        <a href="/admin/research/new" class="btn btn-secondary" style="margin-left:8px;">Enter details manually instead</a>
+    </form>
+</div>
+<% } else { %>
+<div class="card">
+    <h2>Choose the subject</h2>
+    <p style="color:var(--text-muted);font-size:14px;margin-bottom:6px;">
+        <%= preview.individualCount %> people found in <strong><%= preview.filename %></strong>.
+        Pick who the tree is <em>for</em> (usually the customer) — best match first.
+        <% if (preview.warnings && preview.warnings.length) { %>
+            <br><span style="color:#856404;">⚠ <%= preview.warnings.length %> parsing note(s): <%= preview.warnings.slice(0, 3).join('; ') %></span>
+        <% } %>
+    </p>
+    <form action="/admin/research/import/confirm" method="POST">
+        <input type="hidden" name="upload_id" value="<%= preview.uploadId %>">
+
+        <% preview.outlines.forEach(function (o, i) { %>
+            <details <%= i === 0 ? 'open' : '' %> style="border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;">
+                <summary style="cursor:pointer;">
+                    <label style="cursor:pointer;">
+                        <input type="radio" name="root_xref" value="<%= o.root.id %>" <%= i === 0 ? 'checked' : '' %>>
+                        <strong><%= o.root.name %></strong>
+                        <% if (o.root.birthYear) { %>(b. <%= o.root.birthYear %>)<% } %>
+                        — <%= o.root.ancestorCount %> ancestors found
+                    </label>
+                </summary>
+                <table style="width:100%;font-size:13px;margin-top:8px;border-collapse:collapse;">
+                    <tr style="text-align:left;color:var(--text-muted);"><th>#</th><th>Name</th><th>Born</th><th>Place</th></tr>
+                    <% o.ancestors.forEach(function (a) { %>
+                        <tr style="border-top:1px solid var(--border);">
+                            <td><%= a.asc %></td>
+                            <td><%= a.name %><% if (a.living) { %> <em style="color:var(--text-muted);">(living)</em><% } %></td>
+                            <td><%= a.birthYear || '' %></td>
+                            <td><%= a.birthPlace || '' %></td>
+                        </tr>
+                    <% }); %>
+                </table>
+            </details>
+        <% }); %>
+
+        <h3 style="font-size:15px;color:var(--forest);margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border);">Customer &amp; options</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Customer Name *</label>
+                <input type="text" name="customer_name" required value="<%= preview.outlines[0].root.name %>">
+            </div>
+            <div class="form-group">
+                <label>Customer Email</label>
+                <input type="email" name="customer_email" placeholder="e.g. john@example.com">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Generations to Research</label>
+                <select name="generations">
+                    <option value="4">4 Generations</option>
+                    <option value="5">5 Generations</option>
+                    <option value="6" selected>6 Generations</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Trust the uploaded tree up to</label>
+                <select name="trust">
+                    <option value="parents" selected>Parents only (recommended)</option>
+                    <option value="grandparents">Parents and grandparents</option>
+                </select>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Create research job</button>
+        <a href="/admin/research/import" class="btn btn-secondary" style="margin-left:8px;">Start over</a>
+    </form>
+</div>
+<% } %>
